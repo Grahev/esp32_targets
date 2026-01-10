@@ -13,6 +13,13 @@
         .btn-stop { background: #ff4444; color: white; }
         .score-board { font-size: 2em; font-family: monospace; }
         #log { font-family: monospace; color: #888; max-height: 200px; overflow-y: auto; background: #000; padding: 10px; }
+        
+        input, select { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 4px; }
+        label { margin-right: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px; border-bottom: 1px solid #333; text-align: left; }
+        th { color: #888; font-size: 0.9em; }
+        tr:first-child td { color: #00ff88; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -20,20 +27,48 @@
     
     <div class="card">
         <h2>Game Control</h2>
-        <select id="gameMode">
-            <option value="TimeAttack">Time Attack</option>
-            <option value="Zombie">Zombie Survival</option>
-            <option value="MemoryStd">Memory (Standard)</option>
-            <option value="MemoryHard">Memory (Hard)</option>
-        </select>
-        <button class="btn" onclick="startGame()">START GAME</button>
-        <button class="btn btn-stop" onclick="stopGame()">STOP</button>
+        <div style="margin-bottom: 15px;">
+            <select id="gameMode">
+                <option value="TimeAttack">Time Attack+</option>
+                <option value="Zombie">Zombie Survival</option>
+                <option value="MemoryStd">Memory (Standard)</option>
+                <option value="MemoryHard">Memory (Hard)</option>
+            </select>
+            <button class="btn" onclick="startGame()">START GAME</button>
+            <button class="btn btn-stop" onclick="stopGame()">STOP</button>
+        </div>
+        
+        <div id="configPanel" style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <label>Duration (Min): <input type="number" id="gDuration" value="1" min="1" max="10" style="width: 50px;"></label>
+            <label>Difficulty: 
+                <select id="gDiff">
+                    <option value="Easy">Easy</option>
+                    <option value="Normal" selected>Normal</option>
+                    <option value="Hard">Hard</option>
+                    <option value="Extreme">Extreme</option>
+                </select>
+            </label>
+            <label><input type="checkbox" id="gPen" checked> Penalties</label>
+        </div>
     </div>
 
     <div class="card">
         <h2>Live Status</h2>
-        <div id="status">Ready</div>
-        <div class="score-board" id="score">0</div>
+        <div style="display:flex; justify-content: space-between; align-items: center;">
+            <div>
+                <div id="status" style="color: #888; margin-bottom: 5px;">Ready</div>
+                <div class="score-board" id="score" title="Score">0</div>
+            </div>
+            <div class="score-board" id="timer" style="color: #00ff88;">00:00</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Leaderboard (Top 20)</h3>
+        <table id="leaderboard">
+            <thead><tr><th>#</th><th>Score</th><th>Hits</th><th>Combo</th><th>Avg RT</th><th>Diff</th></tr></thead>
+            <tbody></tbody>
+        </table>
     </div>
 
     <div class="card">
@@ -58,7 +93,31 @@
                 document.getElementById('status').innerText = data.msg;
             } else if (data.type === 'score') {
                 document.getElementById('score').innerText = data.value;
+            } else if (data.type === 'timer') {
+                const m = Math.floor(data.value / 60);
+                const s = data.value % 60;
+                document.getElementById('timer').innerText = `${m}:${s.toString().padStart(2, '0')}`;
+            } else if (data.type === 'leaderboard') {
+                renderLeaderboard(data.data);
             }
+        }
+
+        function renderLeaderboard(data) {
+            const tbody = document.querySelector('#leaderboard tbody');
+            tbody.innerHTML = '';
+            data.forEach((row, index) => {
+                const diffLabel = row.difficulty ? row.difficulty.substring(0,1) : '-';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td style="color:#00ff88">${row.score}</td>
+                    <td>${row.hits}</td>
+                    <td>${row.max_combo || 0}</td>
+                    <td>${Math.round(row.avg_rt || 0)}ms</td>
+                    <td>${diffLabel}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         function log(msg) {
@@ -69,7 +128,12 @@
 
         function startGame() {
             const mode = document.getElementById('gameMode').value;
-            fetch(`/start?mode=${mode}`);
+            const dur = document.getElementById('gDuration').value;
+            // Delay hidden for now, using defaults per difficulty but can be added back if needed
+            const diff = document.getElementById('gDiff').value;
+            const pen = document.getElementById('gPen').checked;
+            
+            fetch(`/start?mode=${mode}&duration=${dur}&delay=1.0&difficulty=${diff}&penalties=${pen}`);
         }
 
         function stopGame() {

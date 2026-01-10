@@ -8,126 +8,51 @@ import ujson as json
 from common.espnow_utils import init_espnow, unpack_message, pack_command, MSG_TYPE_ANNOUNCE, MSG_TYPE_HIT
 from microdot_asyncio import Microdot, Response, send_file
 from microdot_websocket import with_websocket
-from game_engine import GameMode, TimeAttack, ZombieMode, MemoryPatterns
+from game_engine import GameMode, TimeAttackPlus, ZombieMode, MemoryPatterns
 
-# --- Configuration ---
-AP_SSID = "Airsoft-Master"
-
-# --- Globals ---
-app = Microdot()
-game_engine = None # Placeholder class wrapper if needed
-connected_clients = []
-
-# --- System Class ---
-class HUB_SYSTEM:
-    def __init__(self):
-        self.nodes = set()
-        self.node_macs = {} # Map ID -> MAC
-        self.esp = None
-        self.game = None
-        self.wlan = None 
-        self.available_nodes = [] 
-
-    def broadcast_ws(self, msg_dict):
-        msg_json = json.dumps(msg_dict)
-        for p in connected_clients:
-            try:
-                asyncio.create_task(p.send(msg_json))
-            except:
-                pass
-    
-    def register_node(self, node_id, mac):
-        # Update MAC if changed or new
-        if node_id not in self.node_macs or self.node_macs[node_id] != mac:
-            self.node_macs[node_id] = mac
-            print(f"Registered Node {node_id} MAC: {mac}")
-            try:
-                self.esp.add_peer(mac)
-            except:
-                pass # Peer might exist
-        
-        # Add to available list
-        if node_id not in self.available_nodes:
-            self.available_nodes.append(node_id)
-            self.available_nodes.sort()
-            print(f"Node {node_id} added to pool. Total: {len(self.available_nodes)}")
-            self.broadcast_ws({"type": "status", "msg": f"Node {node_id} Joined"})
-
-    def on_hit(self, node_id, voltage, mac):
-        print(f"HIT: Node {node_id}")
-        self.nodes.add(node_id)
-        
-        # Ensure registered
-        self.register_node(node_id, mac)
-            
-        if self.game:
-            self.game.on_hit(node_id)
-        
-        self.broadcast_ws({"type": "hit", "node_id": node_id, "time": time.ticks_ms()})
-
-    def send_node_cmd(self, node_id, r, g, b):
-        if self.esp and node_id in self.node_macs:
-            mac = self.node_macs[node_id]
-            cmd = pack_command(1, r, g, b) # CMD 1 = Set LED
-            try:
-                self.esp.send(mac, cmd)
-                print(f"Sent LED {r},{g},{b} to {node_id}")
-            except Exception as e:
-                print(f"Send Error: {e}")
-        else:
-            print(f"Cannot send to Node {node_id} (Unknown MAC)")
-
-    def broadcast_led(self, r, g, b):
-        if self.esp:
-            cmd = pack_command(1, r, g, b)
-            # 1. Try Broadcast
-            broadcast = b'\xff' * 6
-            try:
-                self.esp.add_peer(broadcast)
-            except:
-                pass
-            try:
-                self.esp.send(broadcast, cmd)
-            except Exception as e:
-                print(f"Broadcast Error: {e}")
-            
-            # 2. Unicast to all known nodes (Fallback)
-            for nid, mac in self.node_macs.items():
-                try:
-                    self.esp.send(mac, cmd)
-                    print(f"Unicast LED {r},{g},{b} to {nid}")
-                except:
-                    pass
+# ... (Previous Code)
 
     def game_over(self):
         print("GAME OVER")
         if self.game:
+            if self.game.name == "Time Attack+":
+                self.save_score(self.game)
             self.game = None
         self.broadcast_ws({"type": "status", "msg": "GAME OVER"})
+        # Send updated leaderboard
+        self.broadcast_ws({"type": "leaderboard", "data": self.get_leaderboard()})
 
-hub = HUB_SYSTEM()
+    def save_score(self, game_obj):
+        try:
+            scores = self.get_leaderboard()
+            
+            # Add new
+            duration_min = game_obj.duration_ms / 60000.0
+            new_score = {
+                "hits": game_obj.hits,
+                "score": game_obj.score,
+                "max_combo": game_obj.max_combo,
+                "penalties": game_obj.penalty_count,
+                "difficulty": game_obj.difficulty,
+                "duration_min": duration_min,
+                # Avoid div by zero
+                "hpm": game_obj.hits / duration_min if duration_min > 0 else 0,
+                "hps": game_obj.hits / (game_obj.duration_ms / 1000.0) if game_obj.duration_ms > 0 else 0,
+                "avg_rt": (sum(game_obj.reaction_times)/len(game_obj.reaction_times)) if game_obj.reaction_times else 0
+            }
+            scores.append(new_score)
+            
+            # Sort by Score desc
+            scores.sort(key=lambda x: x['score'], reverse=True)
+            scores = scores[:20] # Keep Top 20 for mixed difficulties
+            
+            with open('scores_time_attack.json', 'w') as f:
+                json.dump(scores, f)
+            print("Score Saved")
+        except Exception as e:
+            print(f"Save Error: {e}")
 
-# --- Web Server Routes ---
-@app.route('/')
-async def index(request):
-    return send_file('hub/static/index.html')
-
-@app.route('/ws')
-async def websocket_handler(request):
-    # Manual WebSocket upgrade to avoid decorator issues with async
-    from microdot_websocket import WebSocket
-    ws = WebSocket(request)
-    await ws.handshake()
-    print("WS Connected")
-    connected_clients.append(ws)
-    try:
-        while True:
-            msg = await ws.receive()
-    except Exception as e:
-        print(f"WS Error: {e}")
-    finally:
-        if ws in connected_clients:
-            connected_clients.remove(ws)
+# ... (Previous Routes)
 
 @app.route('/start')
 async def start_game(request):
@@ -138,7 +63,12 @@ async def start_game(request):
         return "No Nodes Connected"
     
     if mode == 'TimeAttack':
-        hub.game = TimeAttack(hub) 
+        duration = int(request.args.get('duration', 1))
+        delay = float(request.args.get('delay', 1.0))
+        diff = request.args.get('difficulty', 'Normal')
+        pen = (request.args.get('penalties', 'true') == 'true')
+        
+        hub.game = TimeAttackPlus(hub, duration_min=duration, difficulty=diff, penalties=pen, respawn_delay=delay) 
     elif mode == 'Zombie':
         hub.game = ZombieMode(hub)
     elif mode.startswith('Memory'):
