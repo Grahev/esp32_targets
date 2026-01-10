@@ -226,14 +226,15 @@ class TimeAttackPlus(GameMode):
             
             # RT Bonus
             rt_bonus = 0
-            if rt <= 250: rt_bonus = 3
-            elif rt <= 400: rt_bonus = 2
-            elif rt <= 600: rt_bonus = 1
+            if rt <= 600: rt_bonus = 3
+            elif rt <= 900: rt_bonus = 2
+            elif rt <= 1400: rt_bonus = 1
             
             points += rt_bonus
             
             # Combo
-            if rt > 1000:
+            # Also relax combo reset slightly to match new pacing (e.g. 2s)
+            if rt > 2000:
                 self.combo = 0 # Slow response reset
             else:
                 self.combo += 1
