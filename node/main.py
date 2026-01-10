@@ -4,7 +4,8 @@ import network
 import espnow
 from machine import Pin
 import neopixel
-from common.espnow_utils import init_espnow, pack_message
+import json
+from common.espnow_utils import init_espnow, pack_message, MSG_TYPE_ANNOUNCE
 
 # --- Hardware Config (ESP8266 Wemos D1 Mini) ---
 # GPIO 0 = D3 (Flash Button / LED)
@@ -19,10 +20,20 @@ NUM_LEDS = 1
 NODE_ID = 1         
 hit_detected = False
 last_hit_time = 0
+last_announce_time = 0
 
 # --- Setup ---
 led = neopixel.NeoPixel(Pin(LED_PIN), NUM_LEDS)
 sensor = Pin(SENSOR_PIN, Pin.IN) # SW-420 usually needs no pull logic if module has op-amp
+
+# Load Config
+try:
+    with open('config.json', 'r') as f:
+        config = json.load(f)
+        NODE_ID = config.get('node_id', 1)
+        print(f"Loaded Config: Node {NODE_ID}")
+except:
+    print("Config not found, using default ID")
 
 # Initialize WiFi for ESP-NOW (Station Mode required for ESP8266)
 wlan = network.WLAN(network.STA_IF)
@@ -52,6 +63,14 @@ def blink_led(r, g, b, duration=100):
     time.sleep_ms(duration)
     set_led(0, 0, 0)
 
+def send_announce(peer):
+    print(f"Announcing Node {NODE_ID}")
+    msg = pack_message(NODE_ID, 3.3, False, msg_type=MSG_TYPE_ANNOUNCE)
+    try:
+        e.send(peer, msg)
+    except Exception as ex:
+        print("Announce failed")
+
 # --- Main Loop ---
 def main():
     print(f"Airsoft Node {NODE_ID} (ESP8266) Started")
@@ -64,16 +83,24 @@ def main():
 
     set_led(0, 10, 0) # Idle Green
     
+    send_announce(peer)
+    
     from common.espnow_utils import unpack_command
 
     while True:
-        global hit_detected
+        global hit_detected, last_announce_time
         
+        # Periodic Announce (Every 5s) to ensure Hub knows we exist
+        now = time.ticks_ms()
+        if time.ticks_diff(now, last_announce_time) > 5000:
+            send_announce(peer)
+            last_announce_time = now
+
         # Check for incoming commands (Hub -> Node)
         if e.any():
             host, msg = e.recv()
             if msg:
-                print(f"RX {len(msg)}b from {host}")
+                # print(f"RX {len(msg)}b from {host}")
                 cmd = unpack_command(msg)
                 if cmd:
                     cid, r, g, b = cmd
@@ -90,8 +117,7 @@ def main():
             blink_led(255, 255, 255, 100) # Flash White
             
             # 2. Send Data
-            # Battery check is manual on ESP8266 (A0), ignored for now (sent as 3.3)
-            msg = pack_message(NODE_ID, 3.3, True)
+            msg = pack_message(NODE_ID, 3.3, True) # Defaults to HIT type
             try:
                 e.send(peer, msg)
             except Exception as ex:

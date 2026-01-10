@@ -5,7 +5,7 @@ from machine import Pin
 import ujson as json
 
 # Libraries
-from common.espnow_utils import init_espnow, unpack_message, pack_command
+from common.espnow_utils import init_espnow, unpack_message, pack_command, MSG_TYPE_ANNOUNCE, MSG_TYPE_HIT
 from microdot_asyncio import Microdot, Response, send_file
 from microdot_websocket import with_websocket
 from game_engine import GameMode, TimeAttack, ZombieMode, MemoryPatterns
@@ -26,7 +26,7 @@ class HUB_SYSTEM:
         self.esp = None
         self.game = None
         self.wlan = None 
-        self.available_nodes = [1] 
+        self.available_nodes = [] 
 
     def broadcast_ws(self, msg_dict):
         msg_json = json.dumps(msg_dict)
@@ -35,22 +35,30 @@ class HUB_SYSTEM:
                 asyncio.create_task(p.send(msg_json))
             except:
                 pass
+    
+    def register_node(self, node_id, mac):
+        # Update MAC if changed or new
+        if node_id not in self.node_macs or self.node_macs[node_id] != mac:
+            self.node_macs[node_id] = mac
+            print(f"Registered Node {node_id} MAC: {mac}")
+            try:
+                self.esp.add_peer(mac)
+            except:
+                pass # Peer might exist
+        
+        # Add to available list
+        if node_id not in self.available_nodes:
+            self.available_nodes.append(node_id)
+            self.available_nodes.sort()
+            print(f"Node {node_id} added to pool. Total: {len(self.available_nodes)}")
+            self.broadcast_ws({"type": "status", "msg": f"Node {node_id} Joined"})
 
     def on_hit(self, node_id, voltage, mac):
         print(f"HIT: Node {node_id}")
         self.nodes.add(node_id)
         
-        # Store MAC for return comms
-        if node_id not in self.node_macs:
-            self.node_macs[node_id] = mac
-            # Try add peer just in case (ignore if exists)
-            try:
-                self.esp.add_peer(mac)
-            except:
-                pass
-
-        if node_id not in self.available_nodes:
-            self.available_nodes.append(node_id)
+        # Ensure registered
+        self.register_node(node_id, mac)
             
         if self.game:
             self.game.on_hit(node_id)
@@ -126,6 +134,9 @@ async def start_game(request):
     mode = request.args.get('mode', 'TimeAttack')
     print(f"Starting {mode}")
     
+    if not hub.available_nodes:
+        return "No Nodes Connected"
+    
     if mode == 'TimeAttack':
         hub.game = TimeAttack(hub) 
     elif mode == 'Zombie':
@@ -173,10 +184,14 @@ async def espnow_listener():
                 try:
                     data = unpack_message(msg)
                     if data:
-                        node_id, batt, hit, _ = data
-                        # print(f"DEBUG: Unpacked -> ID:{node_id} Hit:{hit}")
-                        if hit:
-                            hub.on_hit(node_id, batt, host)
+                        node_id, batt, hit, msg_type = data
+                        # print(f"DEBUG: Unpacked -> ID:{node_id} Type:{msg_type}")
+                        
+                        if msg_type == MSG_TYPE_ANNOUNCE:
+                            hub.register_node(node_id, host)
+                        elif msg_type == MSG_TYPE_HIT:
+                            if hit:
+                                hub.on_hit(node_id, batt, host)
                     else:
                         print("DEBUG: Unpack returned None")
                 except Exception as ex:

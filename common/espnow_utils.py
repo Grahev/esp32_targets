@@ -7,9 +7,13 @@ WIFI_CHANNEL = 1
 ESPNOW_PMK = "AirsoftGemini2026"  # Primary Master Key (Optional, but good practice)
 
 # Message Protocol
-# Format: <ID:int><BATT:float><HIT:bool><RESERVED:int>
+# Format: <ID:int><BATT:float><HIT:bool><MSG_TYPE:int>
 # Struct format: 'ifBi' (i=int, f=float, B=uchar, i=int) -> 13 bytes
 MSG_FORMAT = 'ifBi' 
+
+MSG_TYPE_HIT = 0
+MSG_TYPE_ANNOUNCE = 1
+
 # Command Protocol (Hub -> Node)
 # Format: <CMD_ID:int><R:int><G:int><B:int>
 # CMD_ID: 1=Set LED
@@ -31,8 +35,8 @@ def init_espnow(mode=network.AP_IF):
     
     return e, wlan
 
-def pack_message(target_id, battery_voltage, hit_detected):
-    return struct.pack(MSG_FORMAT, target_id, battery_voltage, int(hit_detected), 0)
+def pack_message(target_id, battery_voltage, hit_detected, msg_type=MSG_TYPE_HIT):
+    return struct.pack(MSG_FORMAT, target_id, battery_voltage, int(hit_detected), msg_type)
 
 def unpack_message(data):
     try:
