@@ -85,10 +85,10 @@ When a node goes red, timestamp is recorded.
 **Bonus Rules:**
 | Reaction Time | Bonus |
 | :--- | :--- |
-| ≤ 250ms | +3 |
-| 251–400ms | +2 |
-| 401–600ms | +1 |
-| > 600ms | +0 |
+| ≤ 600ms | +3 |
+| 601–900ms | +2 |
+| 901–1400ms | +1 |
+| > 1400ms | +0 |
 
 ### 5.5 Penalties (Optional)
 If enabled, hitting inactive node = penalty.
