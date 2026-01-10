@@ -20,22 +20,22 @@ class GameMode:
         pass
 
 class DifficultyConfig:
-    # Key: Difficulty Level -> [Activation Speed Factor, Min Active Targets]
-    # Curve: S0, S1, S2, S3, S4, S5 (0s, 20s, 40s, 60s, 80s, 100s)
-    # Factor is multiplier for Respawn Delay
+    # Key: Difficulty Level -> [Activation Speed Factor/Seconds, Min Active Targets]
+    # Curve: S0, S1, S2, S3, S4, S5 (0s, 30s, 60s, 90s, 120s, 150s+)
+    # Values are seconds (multipliers if base_delay=1.0s)
     SPEED_CURVE = {
-        "Easy":    [1.0, 0.95, 0.90, 0.85, 0.80, 0.75],
-        "Normal":  [0.8, 0.70, 0.60, 0.55, 0.50, 0.45],
-        "Hard":    [0.5, 0.45, 0.40, 0.35, 0.30, 0.25],
-        "Extreme": [0.35, 0.30, 0.25, 0.20, 0.15, 0.12]
+        "Easy":    [1.8, 1.7, 1.6, 1.5, 1.4, 1.3],
+        "Normal":  [1.6, 1.5, 1.4, 1.3, 1.2, 1.0],
+        "Hard":    [1.3, 1.2, 1.1, 1.0, 0.9, 0.8],
+        "Extreme": [1.1, 1.0, 0.9, 0.8, 0.7, 0.6]
     }
     
     # Min Targets
     MIN_TARGET_CURVE = {
         "Easy":    [1, 1, 1, 1, 1, 2],
-        "Normal":  [1, 1, 2, 2, 2, 3],
-        "Hard":    [2, 2, 3, 3, 3, 3],
-        "Extreme": [2, 2, 3, 3, 4, 4]
+        "Normal":  [1, 1, 2, 2, 2, 2],
+        "Hard":    [1, 1, 2, 2, 2, 3],
+        "Extreme": [2, 2, 2, 3, 3, 3]
     }
 
     PENALTIES = {"Easy": -1, "Normal": -1, "Hard": -2, "Extreme": -5}
@@ -60,6 +60,7 @@ class TimeAttackPlus(GameMode):
         
         self.game_start_time = 0
         self.game_end_time = 0
+        self.last_hit_time = 0
         
         # Tracking
         self.active_targets = {} # {node_id: activation_time_ms}
@@ -114,6 +115,12 @@ class TimeAttackPlus(GameMode):
             self.update_intensity(now)
             self.scheduler_tick(now)
             
+            # Combo Expiry (4s timeout)
+            if self.combo > 0:
+                if time.ticks_diff(now, self.last_hit_time) > 4000:
+                    self.combo = 0
+                    print("Combo Expired")
+            
             # Respawn Logic
             for item in self.respawn_queue[:]:
                 wake_time, node_id = item
@@ -144,6 +151,7 @@ class TimeAttackPlus(GameMode):
     def start_game_play(self):
         self.state = "PLAYING"
         self.game_start_time = time.ticks_ms()
+        self.last_hit_time = self.game_start_time
         self.game_end_time = time.ticks_add(self.game_start_time, self.duration_ms)
         self.engine.broadcast_ws({"type": "status", "msg": "GO!"})
         
@@ -153,8 +161,8 @@ class TimeAttackPlus(GameMode):
 
     def update_intensity(self, now):
         elapsed_sec = time.ticks_diff(now, self.game_start_time) / 1000.0
-        # Stages at 0, 20, 40, 60, 80, 100
-        stage = int(elapsed_sec / 20)
+        # Stages: 30s intervals
+        stage = int(elapsed_sec / 30)
         if stage > 5: stage = 5
         self.intensity_stage = stage
 
@@ -217,6 +225,9 @@ class TimeAttackPlus(GameMode):
             activation_time = self.active_targets.pop(node_id)
             self.engine.send_node_cmd(node_id, 0, 0, 0) # Off
             
+            # Record hit time for combo expiry
+            self.last_hit_time = now
+
             # Reaction Time
             rt = time.ticks_diff(now, activation_time)
             self.reaction_times.append(rt)
@@ -224,7 +235,7 @@ class TimeAttackPlus(GameMode):
             # Scoring
             points = 1 # Base
             
-            # RT Bonus
+            # RT Bonus (Updated real-world thresholds)
             rt_bonus = 0
             if rt <= 600: rt_bonus = 3
             elif rt <= 900: rt_bonus = 2
@@ -233,15 +244,11 @@ class TimeAttackPlus(GameMode):
             points += rt_bonus
             
             # Combo
-            # Also relax combo reset slightly to match new pacing (e.g. 2s)
-            if rt > 2000:
-                self.combo = 0 # Slow response reset
-            else:
-                self.combo += 1
-                if self.combo > self.max_combo: self.max_combo = self.combo
+            self.combo += 1
+            if self.combo > self.max_combo: self.max_combo = self.combo
             
-            # Combo Bonus (Every 5)
-            if self.combo > 0 and self.combo % 5 == 0:
+            # Combo Bonus (Every 3)
+            if self.combo > 0 and self.combo % 3 == 0:
                 points += 5
                 
             self.score += points
@@ -252,13 +259,15 @@ class TimeAttackPlus(GameMode):
             self.engine.broadcast_ws({"type": "hit", "node_id": node_id, "time": now})
             
             # Schedule Respawn
-            # Delay affected by Difficulty Speed Curve
+            # Delay multiplier from speed curve
             spd_curve = DifficultyConfig.SPEED_CURVE.get(self.difficulty, DifficultyConfig.SPEED_CURVE["Normal"])
             idx = min(self.intensity_stage, len(spd_curve)-1)
             factor = spd_curve[idx]
             
+            # Using factor as seconds roughly, assuming base is ~1s
+            # If base passed in is 1.0, then 1.0 * 1.8 = 1.8s. Correct.
             delay_max = int(self.base_respawn_delay_ms * factor)
-            delay = random.randint(100, max(200, delay_max))
+            delay = random.randint(200, max(300, delay_max))
             
             wake_time = time.ticks_add(now, delay)
             self.respawn_queue.append((wake_time, node_id))
