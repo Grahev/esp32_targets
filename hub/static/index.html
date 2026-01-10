@@ -53,6 +53,30 @@
     </div>
 
     <div class="card">
+        <h3 onclick="toggleRules()" style="cursor: pointer; display: flex; align-items: center;">
+            <span style="flex-grow: 1;">Time Attack+ Point System & Rules</span>
+            <span id="rulesArrow">►</span>
+        </h3>
+        <div id="rulesPanel" style="display: none; font-size: 0.9em; color: #ccc; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+            <p><strong>Goal:</strong> Hit active (Red) targets as fast as possible.</p>
+            <ul style="padding-left: 20px;">
+                <li><strong>Base Hit:</strong> +1 Point</li>
+                <li><strong>Reaction Bonus:</strong> 
+                    <br>&nbsp;&nbsp;≤ 0.6s: <span style="color:#00ff88">+3</span>
+                    <br>&nbsp;&nbsp;0.6s–0.9s: <span style="color:#00ff88">+2</span>
+                    <br>&nbsp;&nbsp;0.9s–1.4s: <span style="color:#00ff88">+1</span>
+                </li>
+                <li><strong>Combo Bonus:</strong> +5 Points every 3 consecutive hits.</li>
+            </ul>
+            <p><strong>Penalties:</strong></p>
+            <ul style="padding-left: 20px;">
+                <li><strong>Miss (Inactive Node):</strong> -1 to -5 Points (based on difficulty).</li>
+                <li><strong>Combo Reset:</strong> Occurs on Miss OR >4s without a hit.</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="card">
         <h2>Live Status</h2>
         <div style="display:flex; justify-content: space-between; align-items: center;">
             <div>
@@ -138,6 +162,18 @@
 
         function stopGame() {
             fetch('/stop');
+        }
+
+        function toggleRules() {
+            const panel = document.getElementById('rulesPanel');
+            const arrow = document.getElementById('rulesArrow');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                arrow.innerText = '▼';
+            } else {
+                panel.style.display = 'none';
+                arrow.innerText = '►';
+            }
         }
     </script>
 </body>
