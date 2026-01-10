@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airsoft Gemini Command</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #111; color: #eee; margin: 0; padding: 20px; }
+        h1 { color: #00ff88; }
+        .card { background: #222; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .btn { background: #00ff88; color: #111; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; border-radius: 6px; }
+        .btn:hover { background: #00cc6a; }
+        .btn-stop { background: #ff4444; color: white; }
+        .score-board { font-size: 2em; font-family: monospace; }
+        #log { font-family: monospace; color: #888; max-height: 200px; overflow-y: auto; background: #000; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Gemini Dashboard</h1>
+    
+    <div class="card">
+        <h2>Game Control</h2>
+        <select id="gameMode">
+            <option value="TimeAttack">Time Attack</option>
+            <option value="Zombie">Zombie Survival</option>
+            <option value="MemoryStd">Memory (Standard)</option>
+            <option value="MemoryHard">Memory (Hard)</option>
+        </select>
+        <button class="btn" onclick="startGame()">START GAME</button>
+        <button class="btn btn-stop" onclick="stopGame()">STOP</button>
+    </div>
+
+    <div class="card">
+        <h2>Live Status</h2>
+        <div id="status">Ready</div>
+        <div class="score-board" id="score">0</div>
+    </div>
+
+    <div class="card">
+        <h3>Event Log</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const ws = new WebSocket(`ws://${location.host}/ws`);
+        
+        ws.onopen = () => log("WebSocket Connected");
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            handleData(data);
+        };
+        ws.onclose = () => log("WebSocket Disconnected");
+
+        function handleData(data) {
+            if (data.type === 'hit') {
+                log(`HIT! Node ${data.node_id} (${data.time}ms)`);
+            } else if (data.type === 'status') {
+                document.getElementById('status').innerText = data.msg;
+            } else if (data.type === 'score') {
+                document.getElementById('score').innerText = data.value;
+            }
+        }
+
+        function log(msg) {
+            const div = document.createElement('div');
+            div.innerText = `> ${msg}`;
+            document.getElementById('log').prepend(div);
+        }
+
+        function startGame() {
+            const mode = document.getElementById('gameMode').value;
+            fetch(`/start?mode=${mode}`);
+        }
+
+        function stopGame() {
+            fetch('/stop');
+        }
+    </script>
+</body>
+</html>
