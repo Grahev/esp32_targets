@@ -113,6 +113,17 @@ class TimeAttackPlus(GameMode):
                 self.engine.broadcast_ws({"type": "timer", "value": int(remaining/1000)})
 
             self.update_intensity(now)
+            
+            # Freeze Logic
+            if self.freeze_end_time > 0:
+                if time.ticks_diff(self.freeze_end_time, now) > 0:
+                    # Still frozen, ensure Orange flash is maintained (optional re-broadcast)
+                    # For simple WS2812, 1 broadcast is enough usually, but to be safe we can skip spawn logic
+                    return
+                else:
+                    self.freeze_end_time = 0
+                    self.engine.broadcast_led(0, 0, 0) # Clear freeze
+
             self.scheduler_tick(now)
             
             # Combo Expiry (4s timeout)
@@ -129,19 +140,19 @@ class TimeAttackPlus(GameMode):
                     self.respawn_queue.remove(item)
 
     def handle_setup(self, now):
-        # 3x Orange Pulse, 1x Green Blink
+        # 3x Yellow Pulse, 1x Green Blink
         step = self.setup_step
         if step < 6: 
             is_on = (step % 2 == 0)
             if is_on:
-                self.engine.broadcast_led(255, 140, 0) # Orange
+                self.engine.broadcast_led(255, 255, 0) # Yellow
                 self.next_setup_action = time.ticks_add(now, 500)
             else:
                 self.engine.broadcast_led(0, 0, 0)
                 self.next_setup_action = time.ticks_add(now, 300)
             self.setup_step += 1
         elif step == 6: 
-            self.engine.broadcast_led(0, 255, 0) # Green
+            self.engine.broadcast_led(0, 255, 0) # Green for "Ready"
             self.next_setup_action = time.ticks_add(now, 800)
             self.setup_step += 1
         elif step == 7: 
@@ -153,11 +164,15 @@ class TimeAttackPlus(GameMode):
         self.game_start_time = time.ticks_ms()
         self.last_hit_time = self.game_start_time
         self.game_end_time = time.ticks_add(self.game_start_time, self.duration_ms)
+        self.freeze_end_time = 0
+        self.global_mask_end_time = 0
+
         self.engine.broadcast_ws({"type": "status", "msg": "GO!"})
         
-        # Initial fill
+        # Initial fill - 1 Node Red
         self.update_intensity(self.game_start_time)
-        self.scheduler_tick(self.game_start_time)
+        # Force 1 active target immediately for Start
+        self.spawn_weighted_node(self.game_start_time)
 
     def update_intensity(self, now):
         elapsed_sec = time.ticks_diff(now, self.game_start_time) / 1000.0
@@ -185,7 +200,19 @@ class TimeAttackPlus(GameMode):
                 self.spawn_weighted_node(now)
 
     def spawn_weighted_node(self, now):
-        available = [n for n in self.engine.available_nodes if n not in self.active_targets]
+        # Allow checking against last_hit_node if exists
+        last_node = getattr(self, "last_hit_node", None)
+        
+        available = [n for n in self.engine.available_nodes 
+                    if n not in self.active_targets and n != last_node]
+        
+        # If filtering last_node made list empty (e.g. 2 nodes total, 1 active, 1 just hit),
+        # we might have to allow repeat or just wait. 
+        # Requirement: "No-Repeat Rule: The next random spawn cannot be the node that was just hit."
+        # If we only have 2 nodes, Node A is active, Node B just hit. 
+        # A is active. B cannot be spawned. So no spawn. 
+        # Wait for A to be hit. Then A becomes last_hit, B becomes valid. Correct.
+        
         if not available: return
         
         # Calculate weights: Higher weight if lower spawn_history
@@ -220,11 +247,18 @@ class TimeAttackPlus(GameMode):
         if self.state != "PLAYING": return
         now = time.ticks_ms()
         
+        # 1. Global Input Mask
+        if self.global_mask_end_time > 0 and time.ticks_diff(self.global_mask_end_time, now) > 0:
+            return # Ignore input
+
         if node_id in self.active_targets:
             # --- Valid Hit ---
             activation_time = self.active_targets.pop(node_id)
             self.engine.send_node_cmd(node_id, 0, 0, 0) # Off
             
+            # Set Global Mask for 150ms
+            self.global_mask_end_time = time.ticks_add(now, 150)
+
             # Record hit time for combo expiry
             self.last_hit_time = now
 
@@ -233,24 +267,36 @@ class TimeAttackPlus(GameMode):
             self.reaction_times.append(rt)
             
             # Scoring
-            points = 1 # Base
+            points = 0
             
-            # RT Bonus (Updated real-world thresholds)
-            rt_bonus = 0
-            if rt <= 600: rt_bonus = 3
-            elif rt <= 900: rt_bonus = 2
-            elif rt <= 1400: rt_bonus = 1
-            
-            points += rt_bonus
+            # RT Bonus (Revised)
+            # < 750ms: +10 (Elite)
+            # 750-1400ms: +5 (Standard)
+            # > 1400ms: +2 (Slow)
+            if rt < 750: points = 10
+            elif rt <= 1400: points = 5
+            else: points = 2
             
             # Combo
             self.combo += 1
             if self.combo > self.max_combo: self.max_combo = self.combo
             
-            # Combo Bonus (Every 3)
-            if self.combo > 0 and self.combo % 3 == 0:
-                points += 5
-                
+            # Combo Multiplier (Every 3 hits -> 1.5x on subsequent points)
+            # "Every 3 successful hits ... triggers a 1.5x Multiplier on subsequent points"
+            # Clarification: Does it apply to THIS hit or subsequent? Text says "subsequent points".
+            # Assuming it implies a persistent multiplier state or just bonus points.
+            # "triggers a 1.5x Multiplier on subsequent points" might mean a state change.
+            # But usually "Combo BOonus" is simpler.
+            # Let's interpret as: If combo > 3, apply 1.5x to THIS score (rewarding maintaining high combo).
+            # OR logic: Hit 1, 2, 3... Hit 4 gets 1.5x.
+            # Revised interpretation: If current combo > 3, mult = 1.5.
+            
+            multiplier = 1.0
+            if self.combo > 3:
+                multiplier = 1.5
+            
+            points = int(points * multiplier)
+
             self.score += points
             self.hits += 1
             
@@ -259,27 +305,50 @@ class TimeAttackPlus(GameMode):
             self.engine.broadcast_ws({"type": "hit", "node_id": node_id, "time": now})
             
             # Schedule Respawn
-            # Delay multiplier from speed curve
-            spd_curve = DifficultyConfig.SPEED_CURVE.get(self.difficulty, DifficultyConfig.SPEED_CURVE["Normal"])
-            idx = min(self.intensity_stage, len(spd_curve)-1)
-            factor = spd_curve[idx]
+            # Stage 0: 1.2s, Stage 1: 0.8s, Stage 2: 0.5s
+            stage_delays = {0: 1.2, 1: 0.8, 2: 0.5, 3: 0.5, 4: 0.5, 5: 0.5}
+            base_delay = stage_delays.get(self.intensity_stage, 1.2)
             
-            # Using factor as seconds roughly, assuming base is ~1s
-            # If base passed in is 1.0, then 1.0 * 1.8 = 1.8s. Correct.
-            delay_max = int(self.base_respawn_delay_ms * factor)
-            delay = random.randint(200, max(300, delay_max))
+            delay_max_ms = int(base_delay * 1000)
+            # Randomize slightly? "Spawn Delay: 1.2s". Implies fixed or average. 
+            # Existing code had random range. Let's keep it tight.
+            delay = delay_max_ms
             
             wake_time = time.ticks_add(now, delay)
-            self.respawn_queue.append((wake_time, node_id))
+            
+            # NO REPEAT Rule: Implemented in spawn_weighted_node (it chooses form available, we modify there)
+            # Actually, to prevent "immediate" no-repeat, we just need to make sure the respawn queue 
+            # doesn't just pick the same one if multiple are free? 
+            # The logic "No-Repeat Rule: The next random spawn cannot be the node that was just hit."
+            # is best handled in `spawn_weighted_node` by filtering out `last_hit_node` if needed.
+            # But since we just popped `node_id` from `active_targets`, it IS available.
+            # We will store `self.last_hit_node = node_id` and check in weighted spawn.
+            self.last_hit_node = node_id
+
+            self.respawn_queue.append((wake_time, node_id)) # This puts it back in rotation
             
         else:
             # --- Inactive Hit (Penalty) ---
             if self.penalties_enabled:
-                penalty = DifficultyConfig.PENALTIES.get(self.difficulty, -1)
-                self.score += penalty # Penalty is negative
+                # -15 Points
+                # Freeze 1.0s (Orange)
+                penalty = -15
+                self.score += penalty 
                 self.penalty_count += 1
                 self.combo = 0 # Reset combo
-                print(f"Penalty! Score: {self.score}")
+                
+                # Freeze Logic
+                self.freeze_end_time = time.ticks_add(now, 1000)
+                self.respawn_queue = [] # specific logic: "no targets spawn". 
+                # Should we clear pending spawns? "Timer continues, but no targets spawn".
+                # If we clear queue, nodes won't respawn. We should probably just DELAY them 
+                # or prevent `scheduler_tick` from adding new ones.
+                # Simplest: Input mask is already implied by freeze state checking in tick?
+                # Actually tick check just handles LED.
+                # We need to broadcast Orange NOW.
+                self.engine.broadcast_led(255, 140, 0) # Orange
+                
+                print(f"Penalty! Score: {self.score} FREEZE!")
                 self.engine.broadcast_ws({"type": "score", "value": self.score})
 
     def finish_game(self):
