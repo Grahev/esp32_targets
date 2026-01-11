@@ -3,178 +3,458 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Airsoft Gemini Command</title>
+    <title>TARGET_SYS_V1.3</title>
     <style>
-        body { font-family: 'Inter', sans-serif; background: #111; color: #eee; margin: 0; padding: 20px; }
-        h1 { color: #00ff88; }
-        .card { background: #222; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .btn { background: #00ff88; color: #111; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; border-radius: 6px; }
-        .btn:hover { background: #00cc6a; }
-        .btn-stop { background: #ff4444; color: white; }
-        .score-board { font-size: 2em; font-family: monospace; }
-        #log { font-family: monospace; color: #888; max-height: 200px; overflow-y: auto; background: #000; padding: 10px; }
+        :root {
+            --bg-color: #0D0208;
+            --text-color: #00FF41;
+            --accent-color: #FFB000;
+            --dim-color: #004411;
+            --border-color: #00FF41;
+            --font-stack: 'Courier New', monospace;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-stack);
+            margin: 0;
+            padding: 20px;
+            overflow-x: hidden;
+            text-shadow: 0 0 4px var(--dim-color);
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+
+        /* --- Effects --- */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(to bottom, rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            z-index: 100;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 0.95; }
+            5% { opacity: 0.85; }
+            10% { opacity: 0.95; }
+            100% { opacity: 0.98; }
+        }
+
+        .crt-frame {
+            animation: flicker 0.15s infinite;
+        }
+
+        /* --- Structure --- */
+        .header-bar {
+            border-bottom: 2px solid var(--text-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            text-transform: uppercase;
+        }
         
-        input, select { background: #333; color: white; border: 1px solid #444; padding: 5px; border-radius: 4px; }
-        label { margin-right: 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 8px; border-bottom: 1px solid #333; text-align: left; }
-        th { color: #888; font-size: 0.9em; }
-        tr:first-child td { color: #00ff88; font-weight: bold; }
+        .panel {
+            border: 1px solid var(--dim-color);
+            padding: 15px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .panel-title {
+            position: absolute;
+            top: -10px;
+            left: 10px;
+            background: var(--bg-color);
+            padding: 0 5px;
+            color: var(--text-color);
+            font-weight: bold;
+        }
+
+        /* --- Controls --- */
+        .mode-select {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        
+        label.mode-option {
+            cursor: pointer;
+            display: block;
+        }
+        
+        input[type="radio"] {
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border: 1px solid var(--text-color);
+            border-radius: 50%;
+            margin-right: 8px;
+            display: inline-block;
+            position: relative;
+        }
+        input[type="radio"]:checked {
+            background: var(--text-color);
+            box-shadow: 0 0 5px var(--text-color);
+        }
+
+        .btn {
+            background: transparent;
+            color: var(--text-color);
+            border: 2px solid var(--text-color);
+            padding: 10px 20px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            margin-top: 10px;
+            transition: all 0.2s;
+        }
+        .btn:hover {
+            background: var(--text-color);
+            color: var(--bg-color);
+            box-shadow: 0 0 10px var(--text-color);
+        }
+        .btn-stop {
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+        }
+        .btn-stop:hover {
+            background: var(--accent-color);
+            color: var(--bg-color);
+        }
+
+        /* --- HUD --- */
+        #hud-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 20px;
+            transition: all 0.5s ease;
+        }
+        
+        .hud-box {
+            border: 2px solid var(--text-color);
+            padding: 10px;
+            flex: 1 1 300px;
+            text-align: center;
+        }
+
+        .hud-big {
+            font-size: 3em;
+            font-weight: bold;
+            display: block;
+        }
+        
+        .hud-label {
+            font-size: 0.8em;
+            opacity: 0.8;
+            display: block;
+            border-bottom: 1px solid var(--dim-color);
+            margin-bottom: 5px;
+        }
+
+        /* --- Accordion --- */
+        .accordion-header {
+            cursor: pointer;
+            border-bottom: 1px dashed var(--dim-color);
+            padding: 5px 0;
+            margin: 10px 0;
+        }
+        .accordion-content {
+            display: none;
+            padding: 10px;
+            border-left: 2px solid var(--dim-color);
+            margin-left: 5px;
+            font-size: 0.9em;
+        }
+
+        /* --- Leaderboard --- */
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th { text-align: left; border-bottom: 2px solid var(--dim-color); padding: 5px; color: var(--accent-color); }
+        td { border-bottom: 1px solid var(--dim-color); padding: 5px; }
+
+        /* --- Log --- */
+        #log-area {
+            height: 150px;
+            overflow-y: auto;
+            border-top: 2px solid var(--text-color);
+            padding-top: 10px;
+            font-size: 0.85em;
+            color: #888;
+            margin-top: auto;
+        }
+        .log-entry { margin-bottom: 2px; }
+        .log-time { color: var(--dim-color); margin-right: 5px; }
+
+        /* --- Helpers --- */
+        .dimmed { opacity: 0.3; pointer-events: none; }
+        .active-mode { color: var(--accent-color); }
     </style>
 </head>
 <body>
-    <h1>Gemini Dashboard</h1>
-    
-    <div class="card">
-        <h2>Game Control</h2>
-        <div style="margin-bottom: 15px;">
-            <select id="gameMode">
-                <option value="TimeAttack">Time Attack+</option>
-                <option value="Zombie">Zombie Survival</option>
-                <option value="MemoryStd">Memory (Standard)</option>
-                <option value="MemoryHard">Memory (Hard)</option>
-            </select>
-            <button class="btn" onclick="startGame()">START GAME</button>
-            <button class="btn btn-stop" onclick="stopGame()">STOP</button>
-        </div>
-        
-        <div id="configPanel" style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <label>Duration (Min): <input type="number" id="gDuration" value="1" min="1" max="10" style="width: 50px;"></label>
-            <label>Difficulty: 
-                <select id="gDiff">
-                    <option value="Easy">Easy</option>
-                    <option value="Normal" selected>Normal</option>
-                    <option value="Hard">Hard</option>
-                    <option value="Extreme">Extreme</option>
-                </select>
-            </label>
-            <label><input type="checkbox" id="gPen" checked> Penalties</label>
-        </div>
-    </div>
+    <div class="scanlines"></div>
+    <div class="crt-frame" style="height: 100%; display: flex; flex-direction: column;">
 
-    <div class="card">
-        <h3 onclick="toggleRules()" style="cursor: pointer; display: flex; align-items: center;">
-            <span style="flex-grow: 1;">Time Attack+ Point System & Rules</span>
-            <span id="rulesArrow">►</span>
-        </h3>
-        <div id="rulesPanel" style="display: none; font-size: 0.9em; color: #ccc; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
-            <p><strong>Goal:</strong> Hit active (Red) targets as fast as possible.</p>
-            <ul style="padding-left: 20px;">
-                <li><strong>Base Hit:</strong> +1 Point</li>
-                <li><strong>Reaction Bonus:</strong> 
-                    <br>&nbsp;&nbsp;≤ 0.6s: <span style="color:#00ff88">+3</span>
-                    <br>&nbsp;&nbsp;0.6s–0.9s: <span style="color:#00ff88">+2</span>
-                    <br>&nbsp;&nbsp;0.9s–1.4s: <span style="color:#00ff88">+1</span>
-                </li>
-                <li><strong>Combo Bonus:</strong> +5 Points every 3 consecutive hits.</li>
-            </ul>
-            <p><strong>Penalties:</strong></p>
-            <ul style="padding-left: 20px;">
-                <li><strong>Miss (Inactive Node):</strong> -1 to -5 Points (based on difficulty).</li>
-                <li><strong>Combo Reset:</strong> Occurs on Miss OR >4s without a hit.</li>
-            </ul>
+        <!-- HEADER -->
+        <div class="header-bar">
+            <span>[ SYSTEM STATUS: ONLINE ]</span>
+            <span>[ TARGETS ACTIVE: <span id="target-count">--</span> ]</span>
+            <span id="clock">00:00:00</span>
         </div>
-    </div>
-    
-    <div class="card">
-        <h2>Live Status</h2>
-        <div style="display:flex; justify-content: space-between; align-items: center;">
-            <div>
-                <div id="status" style="color: #888; margin-bottom: 5px;">Ready</div>
-                <div class="score-board" id="score" title="Score">0</div>
+
+        <div id="main-interface">
+            <!-- OPERATION SELECT -->
+            <div class="panel" id="panel-ops">
+                <span class="panel-title">[ SELECT OPERATION ]</span>
+                <div class="mode-select">
+                    <label class="mode-option"><input type="radio" name="mode" value="TimeAttack" checked> TIME ATTACK+</label>
+                    <label class="mode-option"><input type="radio" name="mode" value="Zombie"> ZOMBIE SURVIVAL</label>
+                    <label class="mode-option"><input type="radio" name="mode" value="QuickDraw"> QUICK DRAW</label>
+                    <label class="mode-option"><input type="radio" name="mode" value="Survival"> SURVIVAL</label>
+                    <label class="mode-option"><input type="radio" name="mode" value="MemoryStd"> MEMORY (STD)</label>
+                    <label class="mode-option"><input type="radio" name="mode" value="MemoryHard"> MEMORY (HARD)</label>
+                </div>
             </div>
-            <div class="score-board" id="timer" style="color: #00ff88;">00:00</div>
+
+            <!-- SETTINGS -->
+            <div class="panel" id="panel-settings">
+                <span class="panel-title">[ OPERATION SETTINGS ]</span>
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <label>DURATION: <input type="number" id="opt-duration" value="1" min="1" max="10" style="background:var(--bg-color); color:var(--text-color); border:1px solid var(--dim-color); width: 40px;"> MIN</label>
+                    <label>DIFFICULTY: 
+                        <select id="opt-difficulty" style="background:var(--bg-color); color:var(--text-color); border:1px solid var(--dim-color);">
+                            <option value="Easy">EASY</option>
+                            <option value="Normal" selected>NORMAL</option>
+                            <option value="Hard">HARD</option>
+                            <option value="Extreme">EXTREME</option>
+                        </select>
+                    </label>
+                    <label><input type="checkbox" id="opt-penalties" checked> PENALTIES ENABLED</label>
+                </div>
+
+                <!-- ACCORDION -->
+                <div class="accordion-header" onclick="toggleAccordion()">[+] HOW TO GAIN POINTS (CLICK TO EXPAND)</div>
+                <div class="accordion-content" id="rules-content">
+                    SCORING LOGIC:<br>
+                    > DIRECT HIT: +1 POINT<br>
+                    > REACTION < 0.75s: +10 BONUS (ELITE)<br>
+                    > REACTION < 1.4s: +5 BONUS (STD)<br>
+                    > MISSED TARGET: -15 POINTS (PENALTY)<br>
+                    > COMBO: Every 3 hits = 1.5x Multiplier
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <button class="btn" onclick="triggerStart()">INITIATE PROTOCOL</button>
+                    <button class="btn btn-stop" onclick="triggerStop()">ABORT</button>
+                </div>
+            </div>
         </div>
-    </div>
 
-    <div class="card">
-        <h3>Leaderboard (Top 20)</h3>
-        <table id="leaderboard">
-            <thead><tr><th>#</th><th>Score</th><th>Hits</th><th>Combo</th><th>Avg RT</th><th>Diff</th></tr></thead>
-            <tbody></tbody>
-        </table>
-    </div>
+        <!-- HUD (Visible always, but highlighted during game) -->
+        <div class="panel">
+            <span class="panel-title">[ LIVE HUD ]</span>
+            <div id="hud-container">
+                <div class="hud-box">
+                    <span class="hud-label">MISSION TIMER</span>
+                    <span class="hud-big" id="hud-time">00:00</span>
+                </div>
+                <div class="hud-box">
+                    <span class="hud-label">SCORE TALLY</span>
+                    <span class="hud-big" id="hud-score">0000</span>
+                </div>
+                <div class="hud-box" style="flex: 0 1 200px">
+                    <span class="hud-label">LAST HIT</span>
+                    <span style="font-size: 1.5em;" id="hud-rt">---</span>
+                </div>
+            </div>
+            <div style="margin-top: 5px; font-size: 0.8em; text-align: right;">
+                STATUS: <span id="hud-status">STANDBY</span> | NODES: <span id="hud-nodes">--</span>
+            </div>
+        </div>
 
-    <div class="card">
-        <h3>Event Log</h3>
-        <div id="log"></div>
+        <!-- LEADERBOARD -->
+        <div class="panel">
+            <span class="panel-title">[ TOP 20 LEADERBOARD ]</span>
+            <div style="max-height: 200px; overflow-y: auto;">
+                <table id="lb-table">
+                    <thead>
+                        <tr><th>RNK</th><th>OPERATOR</th><th>SCORE</th><th>HITS</th><th>RT(AVG)</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- LOG -->
+        <div class="panel" style="flex-grow: 1; min-height: 100px; display: flex; flex-direction: column;">
+            <span class="panel-title">[ SYSTEM_LOG // DEBUG ]</span>
+            <div id="log-area"></div>
+        </div>
+
     </div>
 
     <script>
-        const ws = new WebSocket(`ws://${location.host}/ws`);
-        
-        ws.onopen = () => log("WebSocket Connected");
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            handleData(data);
-        };
-        ws.onclose = () => log("WebSocket Disconnected");
+        // --- System Logic ---
+        let ws;
+        let isRunning = false;
 
-        function handleData(data) {
+        function init() {
+            updateClock();
+            setInterval(updateClock, 1000);
+            connectWS();
+            log("SYSTEM INITIALIZED. WAITING FOR CONNECTION...");
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').innerText = `[ ${now.toTimeString().split(' ')[0]} ]`;
+        }
+
+        function connectWS() {
+            const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+            ws = new WebSocket(`${proto}://${location.host}/ws`);
+            
+            ws.onopen = () => {
+                log("UPLINK ESTABLISHED.");
+                document.querySelector('.header-bar span:first-child').style.color = "var(--text-color)";
+            };
+            
+            ws.onmessage = (evt) => {
+                const data = JSON.parse(evt.data);
+                handlePacket(data);
+            };
+
+            ws.onclose = () => {
+                log("CONNECTION LOST. RECONNECTING...");
+                document.querySelector('.header-bar span:first-child').style.color = "red";
+                setTimeout(connectWS, 3000);
+            };
+        }
+
+        function handlePacket(data) {
             if (data.type === 'hit') {
-                log(`HIT! Node ${data.node_id} (${data.time}ms)`);
-            } else if (data.type === 'status') {
-                document.getElementById('status').innerText = data.msg;
+                log(`>> HIT DETECTED: NODE ${data.node_id} [${data.time}ms]`);
+                flashHUD();
+                // We don't get RT in 'hit' generic msg unless updated, 
+                // but engine usually sends separate score update. 
+                // Assuming we can parse RT from somewhere if needed, 
+                // but usually engine handles score calc. 
+                // For "Last Hit" display, we might need RT in the hit packet.
+                // Current backend sends: {"type": "hit", "node_id": node_id, "time": now}
+                // It does NOT send RT. We'll use "T-XX" for now.
+                document.getElementById('hud-rt').innerText = `NODE-${data.node_id.toString().padStart(2,'0')}`;
+
             } else if (data.type === 'score') {
-                document.getElementById('score').innerText = data.value;
+                document.getElementById('hud-score').innerText = data.value.toString().padStart(4, '0');
             } else if (data.type === 'timer') {
                 const m = Math.floor(data.value / 60);
                 const s = data.value % 60;
-                document.getElementById('timer').innerText = `${m}:${s.toString().padStart(2, '0')}`;
+                document.getElementById('hud-time').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+            } else if (data.type === 'status') {
+                document.getElementById('hud-status').innerText = data.msg.toUpperCase();
+                log(`STATUS: ${data.msg}`);
+                
+                // Dimming Logic
+                if (data.msg === 'GO!' || data.msg.startsWith('Started')) {
+                    setRunningMode(true);
+                } else if (data.msg === 'GAME OVER' || data.msg === 'Stopped') {
+                    setRunningMode(false);
+                }
+
+                if (data.msg.startsWith('Node')) {
+                    // Node Joined
+                    // We parse "Node X Joined" or just trigger refresh if we can.
+                    // Ideally backend sends node count.
+                    // For now, ignore count update until implemented.
+                }
+
             } else if (data.type === 'leaderboard') {
                 renderLeaderboard(data.data);
             }
         }
 
+        function setRunningMode(active) {
+            isRunning = active;
+            const ops = document.getElementById('panel-ops');
+            const sett = document.getElementById('panel-settings');
+            
+            if (active) {
+                ops.classList.add('dimmed');
+                sett.classList.add('dimmed');
+            } else {
+                ops.classList.remove('dimmed');
+                sett.classList.remove('dimmed');
+            }
+        }
+
+        function flashHUD() {
+            const hud = document.getElementById('hud-container');
+            hud.style.borderColor = "var(--text-color)";
+            hud.style.boxShadow = "0 0 15px var(--text-color) inset";
+            setTimeout(() => {
+                hud.style.boxShadow = "none";
+            }, 100);
+        }
+
         function renderLeaderboard(data) {
-            const tbody = document.querySelector('#leaderboard tbody');
+            const tbody = document.querySelector('#lb-table tbody');
             tbody.innerHTML = '';
-            data.forEach((row, index) => {
-                const diffLabel = row.difficulty ? row.difficulty.substring(0,1) : '-';
+            data.forEach((row, i) => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td style="color:#00ff88">${row.score}</td>
-                    <td>${row.hits}</td>
-                    <td>${row.max_combo || 0}</td>
-                    <td>${Math.round(row.avg_rt || 0)}ms</td>
-                    <td>${diffLabel}</td>
+                    <td style="color:var(--accent-color)">${(i+1).toString().padStart(2,'0')}</td>
+                    <td>OPERATOR_${(i+100)}</td> <!-- Mock Name for now -->
+                    <td style="color:var(--text-color); font-weight:bold;">${row.score}</td>
+                    <td>${row.hits}/${row.hits + (row.penalties||0)}</td>
+                    <td>${Math.round(row.avg_rt||0)}ms</td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
         function log(msg) {
+            const area = document.getElementById('log-area');
+            const now = new Date().toTimeString().split(' ')[0];
             const div = document.createElement('div');
-            div.innerText = `> ${msg}`;
-            document.getElementById('log').prepend(div);
+            div.className = 'log-entry';
+            div.innerHTML = `<span class="log-time">[${now}]</span> ${msg}`;
+            area.appendChild(div);
+            area.scrollTop = area.scrollHeight;
         }
 
-        function startGame() {
-            const mode = document.getElementById('gameMode').value;
-            const dur = document.getElementById('gDuration').value;
-            // Delay hidden for now, using defaults per difficulty but can be added back if needed
-            const diff = document.getElementById('gDiff').value;
-            const pen = document.getElementById('gPen').checked;
+        function toggleAccordion() {
+            const content = document.getElementById('rules-content');
+            content.style.display = (content.style.display === 'block') ? 'none' : 'block';
+        }
+
+        // --- Controls ---
+        function triggerStart() {
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const dur = document.getElementById('opt-duration').value;
+            const diff = document.getElementById('opt-difficulty').value;
+            const pen = document.getElementById('opt-penalties').checked;
             
+            log(`INITIATING ${mode.toUpperCase()}...`);
             fetch(`/start?mode=${mode}&duration=${dur}&delay=1.0&difficulty=${diff}&penalties=${pen}`);
         }
 
-        function stopGame() {
+        function triggerStop() {
+            log("SENDING ABORT SIGNAL...");
             fetch('/stop');
         }
 
-        function toggleRules() {
-            const panel = document.getElementById('rulesPanel');
-            const arrow = document.getElementById('rulesArrow');
-            if (panel.style.display === 'none') {
-                panel.style.display = 'block';
-                arrow.innerText = '▼';
-            } else {
-                panel.style.display = 'none';
-                arrow.innerText = '►';
-            }
-        }
+        // Start
+        init();
     </script>
 </body>
 </html>
