@@ -21,6 +21,10 @@ NODE_ID = 1
 hit_detected = False
 last_hit_time = 0
 last_announce_time = 0
+SYSTEM_MODE = 0 # 0=Idle, 1=Active, 2=Standby
+
+import math # For Pulse
+pulse_phase = 0.0
 
 # --- Setup ---
 led = neopixel.NeoPixel(Pin(LED_PIN), NUM_LEDS)
@@ -107,10 +111,10 @@ def main():
     
     send_announce(peer)
     
-    from common.espnow_utils import unpack_command
+    from common.espnow_utils import unpack_command, CMD_SET_LED, CMD_SET_MODE
 
     while True:
-        global hit_detected, last_announce_time
+        global hit_detected, last_announce_time, SYSTEM_MODE, pulse_phase
         
         # Periodic Announce (Every 5s) to ensure Hub knows we exist
         now = time.ticks_ms()
@@ -126,19 +130,42 @@ def main():
                 cmd = unpack_command(msg)
                 if cmd:
                     cid, r, g, b = cmd
-                    if cid == 1: # Set LED
+                    if cid == CMD_SET_LED: # Set LED
                          print(f"CMD LED: {r},{g},{b}") 
-                         if not hit_detected: 
+                         if not hit_detected and SYSTEM_MODE == 1: 
                             set_led(r, g, b)
+                    elif cid == CMD_SET_MODE:
+                         print(f"CMD MODE: {r}")
+                         SYSTEM_MODE = r
+                         # Reset LED on mode change
+                         set_led(0, 0, 0)
                 else:
                     print(f"Unpack fail: {msg}")
 
+        # --- Mode Logic ---
+        if SYSTEM_MODE == 0: # Idle
+            # Dim Blue or Pulse Blue if Low Batt
+            batt, pct, chg = read_battery()
+            
+            if pct < 10:
+                # Pulse: Range 0-50 Blue
+                # Approx 1Hz pulse
+                pulse_phase += 0.1
+                val = int((math.sin(pulse_phase) + 1) * 25) # 0 to 50
+                set_led(0, 0, val)
+            else:
+                # Static Dim Blue
+                set_led(0, 0, 10) # Dim 10/255
+                
+        elif SYSTEM_MODE == 2: # Standby
+             # Ensure Off (unless hit, but logic below handles hit)
+             set_led(0, 0, 0)
+
+        # --- Hit Logic ---
         if hit_detected:
             print("HIT!")
-            # 1. Visual Feedback
-            blink_led(255, 255, 255, 100) # Flash White
             
-            # 2. Send Data
+            # Send Data (Always send for diagnostics)
             batt, pct, chg = read_battery()
             msg = pack_message(NODE_ID, batt, pct, True, charging=chg) # Defaults to HIT type
             try:
@@ -146,10 +173,16 @@ def main():
             except Exception as ex:
                 print("Send failed")
             
+            # Visual Feedback (ONLY if Active)
+            if SYSTEM_MODE == 1:
+                blink_led(255, 255, 255, 100) # Flash White
+                set_led(0, 0, 0) 
+            
             hit_detected = False
-            # Return to 'off' or wait for next command? 
-            # Ideally return to last known state, but for now black/idle
-            set_led(0, 0, 0) 
+            
+            # If in Active mode, return to 'off' or wait for next command
+            if SYSTEM_MODE == 1:
+                set_led(0, 0, 0) 
 
         time.sleep_ms(10)
 

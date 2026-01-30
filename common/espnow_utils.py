@@ -16,8 +16,10 @@ MSG_TYPE_ANNOUNCE = 1
 
 # Command Protocol (Hub -> Node)
 # Format: <CMD_ID:int><R:int><G:int><B:int>
-# CMD_ID: 1=Set LED
+# CMD_ID: 1=Set LED, 2=Set Mode
 CMD_FORMAT = 'iBBB'
+CMD_SET_LED = 1
+CMD_SET_MODE = 2
 
 def init_espnow(mode=network.AP_IF):
     """

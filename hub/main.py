@@ -28,7 +28,27 @@ class HUB_SYSTEM:
         self.game = None
         self.wlan = None 
         self.available_nodes = [] 
+        self.available_nodes = [] 
         self.node_battery = {} # Map ID -> Voltage 
+        self.sys_mode = 0 # 0=Idle, 1=Active, 2=Standby
+        self._idle_task = None
+        
+    def set_system_mode(self, mode):
+        # 0=Idle, 1=Active, 2=Standby
+        print(f"Setting System Mode: {mode}")
+        self.sys_mode = mode
+        self.broadcast_command(2, mode, 0, 0) # CMD 2 = Set Mode
+
+    async def _auto_idle(self):
+        print("Standby... Waiting 10s for Idle")
+        await asyncio.sleep(10)
+        self.set_system_mode(0) # Switch to Idle
+        print("Auto Idle Triggered")
+
+    def cancel_idle_timer(self):
+        if self._idle_task:
+            self._idle_task.cancel()
+            self._idle_task = None 
 
     def broadcast_ws(self, msg_dict):
         msg_json = json.dumps(msg_dict)
@@ -69,6 +89,20 @@ class HUB_SYSTEM:
         
         if voltage is not None:
             self.update_battery(node_id, voltage, percent, charging)
+            
+        # Sync new node to current mode (unicast)
+        # We need to construct a unicast packet for Set Mode
+        # Re-use send_node_cmd logic but for Mode
+        self.send_node_mode(node_id, self.sys_mode)
+
+    def send_node_mode(self, node_id, mode):
+        if self.esp and node_id in self.node_macs:
+             mac = self.node_macs[node_id]
+             cmd = pack_command(2, mode, 0, 0) # 2=Set Mode
+             try:
+                 self.esp.send(mac, cmd)
+             except:
+                 pass
 
     def on_hit(self, node_id, voltage, percent, charging, mac):
         print(f"HIT: Node {node_id} V={voltage:.2f} P={percent}% C={charging}")
@@ -97,9 +131,9 @@ class HUB_SYSTEM:
         else:
             print(f"Cannot send to Node {node_id} (Unknown MAC)")
 
-    def broadcast_led(self, r, g, b):
+    def broadcast_command(self, cmd_id, r, g, b):
         if self.esp:
-            cmd = pack_command(1, r, g, b)
+            cmd = pack_command(cmd_id, r, g, b)
             # 1. Try Broadcast
             broadcast = b'\xff' * 6
             try:
@@ -115,9 +149,11 @@ class HUB_SYSTEM:
             for nid, mac in self.node_macs.items():
                 try:
                     self.esp.send(mac, cmd)
-                    print(f"Unicast LED {r},{g},{b} to {nid}")
                 except:
                     pass
+
+    def broadcast_led(self, r, g, b):
+        self.broadcast_command(1, r, g, b)
 
     def game_over(self):
         print("GAME OVER")
@@ -134,6 +170,10 @@ class HUB_SYSTEM:
             self.broadcast_ws({"type": "status", "msg": "GAME OVER"})
             # Send updated leaderboard for that mode
             self.broadcast_ws({"type": "leaderboard", "mode": mode_name, "data": self.get_leaderboard(mode_name)})
+            
+            # Switch to Standby, then schedule Idle
+            self.set_system_mode(2)
+            self._idle_task = asyncio.create_task(self._auto_idle())
 
     def save_score(self, game_obj, mode):
         try:
@@ -246,6 +286,8 @@ async def start_game(request):
         hub.game = TheBreach(hub, start_level=1)
     
     if hub.game:
+        hub.cancel_idle_timer() # Cancel pending idle if any
+        hub.set_system_mode(1) # Active Mode
         hub.game.start()
         hub.broadcast_ws({"type": "status", "msg": f"Started {mode}"})
     
@@ -255,7 +297,12 @@ async def start_game(request):
 async def stop_game(request):
     if hub.game:
         hub.game.stop()
+        # game.stop() calls game_over() which handles mode switch?
+        # Typically separate. TimeAttack calls hub.game_over().
+        # Manual stop might not trigger it if game logic is simple?
+        # Assuming manual stop also clears game:
         hub.game = None
+        hub.game_over() # Trigger Cleanup & Standby logic
         hub.broadcast_ws({"type": "status", "msg": "Stopped"})
     return "Stopped"
 
