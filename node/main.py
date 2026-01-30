@@ -2,7 +2,7 @@ import time
 import machine
 import network
 import espnow
-from machine import Pin
+from machine import Pin, ADC
 import neopixel
 import json
 from common.espnow_utils import init_espnow, pack_message, MSG_TYPE_ANNOUNCE
@@ -25,6 +25,7 @@ last_announce_time = 0
 # --- Setup ---
 led = neopixel.NeoPixel(Pin(LED_PIN), NUM_LEDS)
 sensor = Pin(SENSOR_PIN, Pin.IN) # SW-420 usually needs no pull logic if module has op-amp
+adc = ADC(0)
 
 # Load Config
 try:
@@ -63,9 +64,30 @@ def blink_led(r, g, b, duration=100):
     time.sleep_ms(duration)
     set_led(0, 0, 0)
 
+def read_battery():
+    # Helper to read battery voltage
+    # Wemos D1 Mini internal divider puts 3.2V~ at 1024. 
+    # If using external divider for LiPo (4.2V), adjust factor.
+    # Assuming standard Wemos divider + external:
+    raw = adc.read()
+    # Placeholder calibration: 1024 = 4.2V
+    voltage = (raw / 1024.0) * 4.2 
+    
+    # Calculate Percentage (Linear 3.0V - 4.2V)
+    # 3.0V = 0%, 4.2V = 100%
+    percent = int(((voltage - 3.0) / (4.2 - 3.0)) * 100)
+    percent = max(0, min(100, percent))
+    
+    # Detect Charging
+    # If voltage > 4.25V, likely charging?
+    charging = (voltage > 4.25)
+    
+    return voltage, percent, charging
+
 def send_announce(peer):
     print(f"Announcing Node {NODE_ID}")
-    msg = pack_message(NODE_ID, 3.3, False, msg_type=MSG_TYPE_ANNOUNCE)
+    batt, pct, chg = read_battery()
+    msg = pack_message(NODE_ID, batt, pct, False, msg_type=MSG_TYPE_ANNOUNCE, charging=chg)
     try:
         e.send(peer, msg)
     except Exception as ex:
@@ -117,7 +139,8 @@ def main():
             blink_led(255, 255, 255, 100) # Flash White
             
             # 2. Send Data
-            msg = pack_message(NODE_ID, 3.3, True) # Defaults to HIT type
+            batt, pct, chg = read_battery()
+            msg = pack_message(NODE_ID, batt, pct, True, charging=chg) # Defaults to HIT type
             try:
                 e.send(peer, msg)
             except Exception as ex:

@@ -205,97 +205,187 @@
     <div class="scanlines"></div>
     <div class="crt-frame" style="height: 100%; display: flex; flex-direction: column;">
 
+    <div class="scanlines"></div>
+    <div class="crt-frame" style="height: 100%; display: flex; flex-direction: column;">
+
         <!-- HEADER -->
         <div class="header-bar">
-            <span>[ SYSTEM STATUS: ONLINE ]</span>
-            <span>[ TARGETS ACTIVE: <span id="target-count">--</span> ]</span>
+            <span id="sys-status">[ SYSTEM STATUS: ONLINE ]</span>
+            <span>[ TARGETS: <span id="target-count">--</span> ]</span>
             <span id="clock">00:00:00</span>
+            <button class="btn" style="padding: 2px 10px; margin:0; font-size: 0.8em;" onclick="showLanding()">MENU</button>
         </div>
 
-        <div id="main-interface">
-            <!-- OPERATION SELECT -->
-            <div class="panel" id="panel-ops">
-                <span class="panel-title">[ SELECT OPERATION ]</span>
-                <div class="mode-select">
-                    <label class="mode-option"><input type="radio" name="mode" value="TimeAttack" checked> TIME ATTACK+</label>
-                    <label class="mode-option"><input type="radio" name="mode" value="Zombie"> ZOMBIE SURVIVAL</label>
-                    <label class="mode-option"><input type="radio" name="mode" value="QuickDraw"> QUICK DRAW</label>
-                    <label class="mode-option"><input type="radio" name="mode" value="Survival"> SURVIVAL</label>
-                    <label class="mode-option"><input type="radio" name="mode" value="MemoryStd"> MEMORY (STD)</label>
-                    <label class="mode-option"><input type="radio" name="mode" value="MemoryHard"> MEMORY (HARD)</label>
+        <!-- VIEW: LANDING -->
+        <div id="view-landing" style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; gap: 20px;">
+            <h1 style="font-size: 3em; color: var(--accent-color); text-transform: uppercase;">Select Operation</h1>
+            
+            <button class="btn" style="font-size: 1.5em; padding: 20px 40px; width: 300px;" onclick="switchView('time-attack')">
+                TIME ATTACK +
+                <div style="font-size: 0.4em; color: var(--text-color); margin-top: 5px;">Speed &amp; Presicion</div>
+            </button>
+            
+            <button class="btn" style="font-size: 1.5em; padding: 20px 40px; width: 300px;" onclick="switchView('breach')">
+                THE BREACH
+                <div style="font-size: 0.4em; color: var(--text-color); margin-top: 5px;">Sequence Memory</div>
+            </button>
+
+            <button class="btn" style="font-size: 1.5em; padding: 20px 40px; width: 300px;" onclick="switchView('battery')">
+                BATTERY STATUS
+                <div style="font-size: 0.4em; color: var(--text-color); margin-top: 5px;">System Monitoring</div>
+            </button>
+        </div>
+
+        <!-- VIEW: TIME ATTACK PLUS -->
+        <div id="view-time-attack" style="display: none; flex-direction: column; flex-grow: 1;">
+            <div id="main-interface">
+                <!-- OPERATION SELECT (Hidden/Fixed) -->
+                <div class="panel" style="display:none">
+                    <!-- Legacy compatibility inputs -->
+                     <input type="radio" name="mode" value="TimeAttack" checked>
+                </div>
+
+                <!-- SETTINGS -->
+                <div class="panel" id="panel-settings-ta">
+                    <span class="panel-title">[ TIME ATTACK SETTINGS ]</span>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <label>DURATION: <input type="number" id="opt-duration" value="1" min="1" max="10" style="background:var(--bg-color); color:var(--text-color); border:1px solid var(--dim-color); width: 40px;"> MIN</label>
+                        <label>DIFFICULTY: 
+                            <select id="opt-difficulty" style="background:var(--bg-color); color:var(--text-color); border:1px solid var(--dim-color);">
+                                <option value="Easy">EASY</option>
+                                <option value="Normal" selected>NORMAL</option>
+                                <option value="Hard">HARD</option>
+                                <option value="Extreme">EXTREME</option>
+                            </select>
+                        </label>
+                        <label><input type="checkbox" id="opt-penalties" checked> PENALTIES ENABLED</label>
+                    </div>
+
+                    <!-- ACCORDION -->
+                    <div class="accordion-header" onclick="toggleAccordion('rules-content-ta')">[+] HOW TO PLAY (CLICK TO EXPAND)</div>
+                    <div class="accordion-content" id="rules-content-ta">
+                        SCORING LOGIC:<br>
+                        > DIRECT HIT: +1 POINT<br>
+                        > REACTION &lt; 0.75s: +10 BONUS (ELITE)<br>
+                        > REACTION &lt; 1.4s: +5 BONUS (STD)<br>
+                        > MISSED TARGET: -15 POINTS (PENALTY)<br>
+                        > COMBO: Every 3 hits = 1.5x Multiplier
+                    </div>
+
+                    <div style="margin-top: 15px;">
+                        <button class="btn" onclick="triggerStart('TimeAttack')">INITIATE</button>
+                        <button class="btn btn-stop" onclick="triggerStop()">ABORT</button>
+                    </div>
                 </div>
             </div>
 
-            <!-- SETTINGS -->
-            <div class="panel" id="panel-settings">
-                <span class="panel-title">[ OPERATION SETTINGS ]</span>
-                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                    <label>DURATION: <input type="number" id="opt-duration" value="1" min="1" max="10" style="background:var(--bg-color); color:var(--text-color); border:1px solid var(--dim-color); width: 40px;"> MIN</label>
-                    <label>DIFFICULTY: 
-                        <select id="opt-difficulty" style="background:var(--bg-color); color:var(--text-color); border:1px solid var(--dim-color);">
-                            <option value="Easy">EASY</option>
-                            <option value="Normal" selected>NORMAL</option>
-                            <option value="Hard">HARD</option>
-                            <option value="Extreme">EXTREME</option>
-                        </select>
-                    </label>
-                    <label><input type="checkbox" id="opt-penalties" checked> PENALTIES ENABLED</label>
+            <!-- HUD -->
+            <div class="panel">
+                <span class="panel-title">[ LIVE HUD ]</span>
+                <div id="hud-container-ta" style="display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; text-align: center;">
+                    <div class="hud-box">
+                        <span class="hud-label">MISSION TIMER</span>
+                        <span class="hud-big" id="hud-time">00:00</span>
+                    </div>
+                    <div class="hud-box">
+                        <span class="hud-label">SCORE TALLY</span>
+                        <span class="hud-big" id="hud-score">0000</span>
+                    </div>
+                    <div class="hud-box">
+                        <span class="hud-label">LAST HIT</span>
+                        <span style="font-size: 1.5em;" id="hud-rt">---</span>
+                    </div>
                 </div>
-
-                <!-- ACCORDION -->
-                <div class="accordion-header" onclick="toggleAccordion()">[+] HOW TO GAIN POINTS (CLICK TO EXPAND)</div>
-                <div class="accordion-content" id="rules-content">
-                    SCORING LOGIC:<br>
-                    > DIRECT HIT: +1 POINT<br>
-                    > REACTION < 0.75s: +10 BONUS (ELITE)<br>
-                    > REACTION < 1.4s: +5 BONUS (STD)<br>
-                    > MISSED TARGET: -15 POINTS (PENALTY)<br>
-                    > COMBO: Every 3 hits = 1.5x Multiplier
+                <div style="margin-top: 5px; font-size: 0.8em; text-align: right;">
+                    STATUS: <span id="hud-status-ta">STANDBY</span>
                 </div>
+            </div>
 
+             <!-- LEADERBOARD -->
+            <div class="panel">
+                <span class="panel-title">[ TOP 20 LEADERBOARD ]</span>
+                <div style="max-height: 150px; overflow-y: auto;">
+                    <table id="lb-table">
+                        <thead>
+                            <tr><th>RNK</th><th>OPERATOR</th><th>SCORE</th><th>HITS</th><th>RT(AVG)</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: THE BREACH -->
+        <div id="view-breach" style="display: none; flex-direction: column; flex-grow: 1;">
+            <div class="panel">
+                <span class="panel-title">[ BREACH PROTOCOL ]</span>
+                <p>Sequence Memory Training. Observe the Flash Pattern. Execute in Order.</p>
+                
                 <div style="margin-top: 15px;">
-                    <button class="btn" onclick="triggerStart()">INITIATE PROTOCOL</button>
+                    <button class="btn" onclick="triggerStart('TheBreach')">START BREACH</button>
                     <button class="btn btn-stop" onclick="triggerStop()">ABORT</button>
                 </div>
+                
+                 <!-- ACCORDION -->
+                <div class="accordion-header" onclick="toggleAccordion('rules-content-br')">[+] RULES (CLICK TO EXPAND)</div>
+                <div class="accordion-content" id="rules-content-br">
+                    1. OBSERVE: Targets flash Blue in sequence.<br>
+                    2. EXECUTE: Hit targets in EXACT order.<br>
+                    3. WRONG TARGET = FAIL.<br>
+                    4. TIMEOUT = FAIL (>5s gap).
+                </div>
+            </div>
+
+            <div class="panel">
+                 <span class="panel-title">[ STATUS LINK ]</span>
+                 <div id="hud-container-br" style="display: flex; justify-content: space-around; gap: 20px; text-align: center;">
+                    <div class="hud-box">
+                        <span class="hud-label">CURRENT LEVEL</span>
+                        <span class="hud-big" id="hud-br-level">01</span>
+                    </div>
+                     <div class="hud-box">
+                        <span class="hud-label">TOTAL SCORE</span>
+                        <span class="hud-big" id="hud-br-score">0000</span>
+                    </div>
+                </div>
+                 <div style="margin-top: 10px; font-size: 1.2em; text-align: center; color: var(--accent-color);">
+                    COMMAND: <span id="hud-br-msg">READY</span>
+                </div>
+            </div>
+
+             <!-- LEADERBOARD (BREACH) -->
+             <div class="panel">
+                <span class="panel-title">[ BREACH RECORDS ]</span>
+                <div style="max-height: 150px; overflow-y: auto;">
+                    <table id="lb-table-br">
+                        <thead>
+                            <tr><th>RNK</th><th>OPERATOR</th><th>SCORE</th><th>LEVEL</th><th>STATUS</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
-        <!-- HUD (Visible always, but highlighted during game) -->
-        <div class="panel">
-            <span class="panel-title">[ LIVE HUD ]</span>
-            <div id="hud-container">
-                <div class="hud-box">
-                    <span class="hud-label">MISSION TIMER</span>
-                    <span class="hud-big" id="hud-time">00:00</span>
+        <!-- VIEW: BATTERY STATUS -->
+        <div id="view-battery" style="display: none; flex-direction: column; flex-grow: 1;">
+            <div class="panel">
+                <span class="panel-title">[ POWER MANAGEMENT ]</span>
+                <p>Real-time Node Battery Voltage Monitoring.</p>
+                <div style="max-height: 300px; overflow-y: auto;">
+                    <table id="battery-table">
+                        <thead>
+                            <tr><th>NODE ID</th><th>VOLTAGE</th><th>CHARGE</th><th>STATUS</th></tr>
+                        </thead>
+                        <tbody>
+                            <!-- Rows injected mainly via JS -->
+                        </tbody>
+                    </table>
                 </div>
-                <div class="hud-box">
-                    <span class="hud-label">SCORE TALLY</span>
-                    <span class="hud-big" id="hud-score">0000</span>
-                </div>
-                <div class="hud-box" style="flex: 0 1 200px">
-                    <span class="hud-label">LAST HIT</span>
-                    <span style="font-size: 1.5em;" id="hud-rt">---</span>
-                </div>
-            </div>
-            <div style="margin-top: 5px; font-size: 0.8em; text-align: right;">
-                STATUS: <span id="hud-status">STANDBY</span> | NODES: <span id="hud-nodes">--</span>
             </div>
         </div>
 
-        <!-- LEADERBOARD -->
-        <div class="panel">
-            <span class="panel-title">[ TOP 20 LEADERBOARD ]</span>
-            <div style="max-height: 200px; overflow-y: auto;">
-                <table id="lb-table">
-                    <thead>
-                        <tr><th>RNK</th><th>OPERATOR</th><th>SCORE</th><th>HITS</th><th>RT(AVG)</th></tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- LOG -->
+        <!-- LOG (Shared) -->
         <div class="panel" style="flex-grow: 1; min-height: 100px; display: flex; flex-direction: column;">
             <span class="panel-title">[ SYSTEM_LOG // DEBUG ]</span>
             <div id="log-area"></div>
@@ -307,12 +397,14 @@
         // --- System Logic ---
         let ws;
         let isRunning = false;
+        let currentView = 'landing'; 
 
         function init() {
             updateClock();
             setInterval(updateClock, 1000);
             connectWS();
             log("SYSTEM INITIALIZED. WAITING FOR CONNECTION...");
+            showLanding();
         }
 
         function updateClock() {
@@ -326,7 +418,7 @@
             
             ws.onopen = () => {
                 log("UPLINK ESTABLISHED.");
-                document.querySelector('.header-bar span:first-child').style.color = "var(--text-color)";
+                document.getElementById('sys-status').style.color = "var(--text-color)";
             };
             
             ws.onmessage = (evt) => {
@@ -336,7 +428,7 @@
 
             ws.onclose = () => {
                 log("CONNECTION LOST. RECONNECTING...");
-                document.querySelector('.header-bar span:first-child').style.color = "red";
+                document.getElementById('sys-status').style.color = "red";
                 setTimeout(connectWS, 3000);
             };
         }
@@ -344,61 +436,113 @@
         function handlePacket(data) {
             if (data.type === 'hit') {
                 log(`>> HIT DETECTED: NODE ${data.node_id} [${data.time}ms]`);
-                flashHUD();
-                // We don't get RT in 'hit' generic msg unless updated, 
-                // but engine usually sends separate score update. 
-                // Assuming we can parse RT from somewhere if needed, 
-                // but usually engine handles score calc. 
-                // For "Last Hit" display, we might need RT in the hit packet.
-                // Current backend sends: {"type": "hit", "node_id": node_id, "time": now}
-                // It does NOT send RT. We'll use "T-XX" for now.
-                document.getElementById('hud-rt').innerText = `NODE-${data.node_id.toString().padStart(2,'0')}`;
+                if(currentView === 'time-attack') {
+                     document.getElementById('hud-rt').innerText = `NODE-${data.node_id.toString().padStart(2,'0')}`;
+                     flashHUD('hud-container-ta');
+                } else if (currentView === 'breach') {
+                     flashHUD('hud-container-br');
+                }
 
             } else if (data.type === 'score') {
-                document.getElementById('hud-score').innerText = data.value.toString().padStart(4, '0');
+                if(currentView === 'time-attack') {
+                    document.getElementById('hud-score').innerText = data.value.toString().padStart(4, '0');
+                } else if (currentView === 'breach') {
+                    document.getElementById('hud-br-score').innerText = data.value.toString().padStart(4, '0');
+                }
+                
             } else if (data.type === 'timer') {
+                // Only Time Attack uses Timer
                 const m = Math.floor(data.value / 60);
                 const s = data.value % 60;
                 document.getElementById('hud-time').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-            } else if (data.type === 'status') {
-                document.getElementById('hud-status').innerText = data.msg.toUpperCase();
-                log(`STATUS: ${data.msg}`);
                 
-                // Dimming Logic
-                if (data.msg === 'GO!' || data.msg.startsWith('Started')) {
+            } else if (data.type === 'status') {
+                const msg = data.msg.toUpperCase();
+                log(`STATUS: ${msg}`);
+                
+                if (currentView === 'time-attack') {
+                    document.getElementById('hud-status-ta').innerText = msg;
+                } else if (currentView === 'breach') {
+                    document.getElementById('hud-br-msg').innerText = msg;
+                    if (msg.startsWith("LEVEL")) {
+                        const lvl = msg.split(' ')[1];
+                        document.getElementById('hud-br-level').innerText = lvl.padStart(2, '0');
+                    }
+                }
+
+                if (msg === 'GO!' || msg.startsWith('STARTED') || msg.startsWith('LEVEL')) {
                     setRunningMode(true);
-                } else if (data.msg === 'GAME OVER' || data.msg === 'Stopped') {
+                } else if (msg === 'GAME OVER' || msg === 'STOPPED') {
                     setRunningMode(false);
                 }
 
-                if (data.msg.startsWith('Node')) {
-                    // Node Joined
-                    // We parse "Node X Joined" or just trigger refresh if we can.
-                    // Ideally backend sends node count.
-                    // For now, ignore count update until implemented.
-                }
-
             } else if (data.type === 'leaderboard') {
-                renderLeaderboard(data.data);
+                // Check if this leaderboard update is for current view
+                // Data format expected: {type:'leaderboard', mode:'TimeAttack', data:[...]}
+                // If generic (old format), assume TimeAttack? Or ignore?
+                // Backend sends: {"type": "leaderboard", "mode": "TimeAttack", "data": ...}
+                
+                let mode = data.mode || 'TimeAttack';
+                // Only render if it matches current view!
+                if (mode === 'TimeAttack' && currentView === 'time-attack') {
+                     renderLeaderboard(data.data, 'TimeAttack');
+                } else if (mode === 'TheBreach' && currentView === 'breach') {
+                     renderLeaderboard(data.data, 'TheBreach');
+                }
+            } else if (data.type === 'battery') {
+                updateBattery(data.node_id, data.voltage, data.percent, data.charging);
             }
+        }
+        
+        // --- View Switching ---
+        function showLanding() {
+            currentView = 'landing';
+            document.getElementById('view-landing').style.display = 'flex';
+            document.getElementById('view-time-attack').style.display = 'none';
+            document.getElementById('view-breach').style.display = 'none';
+            document.getElementById('view-battery').style.display = 'none';
+        }
+
+        function switchView(viewName) {
+            currentView = viewName;
+            document.getElementById('view-landing').style.display = 'none';
+            document.getElementById('view-time-attack').style.display = 'none';
+            document.getElementById('view-breach').style.display = 'none';
+            document.getElementById('view-battery').style.display = 'none';
+
+            if (viewName === 'time-attack') {
+                 document.getElementById('view-time-attack').style.display = 'flex';
+                 fetchLeaderboard('TimeAttack');
+            } else if (viewName === 'breach') {
+                 document.getElementById('view-breach').style.display = 'flex';
+                 fetchLeaderboard('TheBreach');
+            } else if (viewName === 'battery') {
+                 document.getElementById('view-battery').style.display = 'flex';
+            }
+        }
+
+        function fetchLeaderboard(mode) {
+             fetch(`/api/leaderboard?mode=${mode}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (mode === 'TimeAttack' && currentView === 'time-attack') renderLeaderboard(data, mode);
+                    if (mode === 'TheBreach' && currentView === 'breach') renderLeaderboard(data, mode);
+                });
         }
 
         function setRunningMode(active) {
             isRunning = active;
-            const ops = document.getElementById('panel-ops');
-            const sett = document.getElementById('panel-settings');
-            
-            if (active) {
-                ops.classList.add('dimmed');
-                sett.classList.add('dimmed');
-            } else {
-                ops.classList.remove('dimmed');
-                sett.classList.remove('dimmed');
+            const sett = document.getElementById('panel-settings-ta');
+            if(sett) {
+                 if (active) sett.classList.add('dimmed');
+                 else sett.classList.remove('dimmed');
             }
+            // Add similar dimming for breach controls if needed
         }
 
-        function flashHUD() {
-            const hud = document.getElementById('hud-container');
+        function flashHUD(id) {
+            const hud = document.getElementById(id);
+            if(!hud) return;
             hud.style.borderColor = "var(--text-color)";
             hud.style.boxShadow = "0 0 15px var(--text-color) inset";
             setTimeout(() => {
@@ -406,20 +550,102 @@
             }, 100);
         }
 
-        function renderLeaderboard(data) {
-            const tbody = document.querySelector('#lb-table tbody');
+        function renderLeaderboard(data, mode) {
+            // Find correct table table
+            let tableId = 'lb-table'; // Default (Time Attack)
+            // Wait, we re-used the table ID in Time Attack view? Yes.
+            // Breach view doesn't have a table yet! 
+            // I need to add the table to Breach View.
+            
+            // Wait, look at previous file content. 
+            // View-Time-Attack has `<table id="lb-table">`
+            // View-Breach has `hud-container-br` and `ACCORDION` but NO LEADERBOARD PANEL.
+            // I MUST ADD IT.
+            
+            // For now, let's assume I will add it in a subsequent edit or assume it exists.
+            // But I should check if I missed adding it to Breach View in step 48 replacement.
+            // Checking Step 48...
+            // View Breach content: Panel Protocol, Panel Status Link using `hud-container-br`.
+            // NO Leaderboard Panel in Breach View.
+            
+            // I need to add a table for Breach!
+            // Let's rely on finding `lb-table` or `lb-table-br`.
+            // Since View-Time-Attack is hidden, `document.getElementById('lb-table')` finds the one in Time Attack.
+            // If I want one for Breach, I need to insert it.
+            
+            // I will first handle the one existing table.
+            // If mode is TheBreach, I need a target.
+            
+            // Just for safety, I'll update this function to work, 
+            // AND I will do another replacement to add the table to the HTML body for Breach.
+            
+            const tbody = document.querySelector(mode === 'TheBreach' ? '#lb-table-br tbody' : '#lb-table tbody');
+            if(!tbody) return;
             tbody.innerHTML = '';
+            
             data.forEach((row, i) => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td style="color:var(--accent-color)">${(i+1).toString().padStart(2,'0')}</td>
-                    <td>OPERATOR_${(i+100)}</td> <!-- Mock Name for now -->
-                    <td style="color:var(--text-color); font-weight:bold;">${row.score}</td>
-                    <td>${row.hits}/${row.hits + (row.penalties||0)}</td>
-                    <td>${Math.round(row.avg_rt||0)}ms</td>
-                `;
+                if (mode === 'TimeAttack') {
+                    tr.innerHTML = `
+                        <td style="color:var(--accent-color)">${(i+1).toString().padStart(2,'0')}</td>
+                        <td>OP_${(i+100)}</td>
+                        <td style="font-weight:bold;">${row.score}</td>
+                        <td>${row.hits}</td>
+                        <td>${Math.round(row.avg_rt||0)}ms</td>
+                    `;
+                } else {
+                    // Breach Columns: Level, Score
+                    tr.innerHTML = `
+                        <td style="color:var(--accent-color)">${(i+1).toString().padStart(2,'0')}</td>
+                        <td>OP_${(i+100)}</td>
+                        <td style="font-weight:bold;">${row.score}</td>
+                        <td>LVL ${row.level}</td>
+                        <td>--</td>
+                    `;
+                }
                 tbody.appendChild(tr);
             });
+        }
+
+        function updateBattery(nodeId, voltage, percent=0, charging=false) {
+            const tbody = document.querySelector('#battery-table tbody');
+            let row = document.getElementById(`batt-row-${nodeId}`);
+            
+            // Determine status color
+            let status = 'GOOD';
+            let color = 'var(--text-color)';
+            if (charging) {
+                status = 'CHARGING';
+                color = 'cyan';
+            } else if (voltage < 3.5) { 
+                status = 'CRITICAL'; 
+                color = 'red'; 
+            } else if (voltage < 3.7) { 
+                status = 'LOW'; 
+                color = 'orange'; 
+            }
+            
+            const html = `
+                <td style="color:var(--accent-color)">NODE_${nodeId}</td>
+                <td style="font-weight:bold;">${voltage.toFixed(2)} V</td>
+                <td>
+                    <div style="width: 100px; border: 1px solid var(--dim-color); height: 10px; display: inline-block;">
+                        <div style="width: ${percent}%; background: ${color}; height: 100%;"></div>
+                    </div>
+                    <span style="font-size: 0.8em; margin-left: 5px;">${percent}%</span>
+                </td>
+                <td style="color:${color}">${status}</td>
+            `;
+
+            if (row) {
+                row.innerHTML = html;
+            } else {
+                row = document.createElement('tr');
+                row.id = `batt-row-${nodeId}`;
+                row.innerHTML = html;
+                // Insert in order? Simple append for now.
+                tbody.appendChild(row);
+            }
         }
 
         function log(msg) {
@@ -432,20 +658,25 @@
             area.scrollTop = area.scrollHeight;
         }
 
-        function toggleAccordion() {
-            const content = document.getElementById('rules-content');
+        function toggleAccordion(id) {
+            const content = document.getElementById(id);
             content.style.display = (content.style.display === 'block') ? 'none' : 'block';
         }
 
         // --- Controls ---
-        function triggerStart() {
-            const mode = document.querySelector('input[name="mode"]:checked').value;
-            const dur = document.getElementById('opt-duration').value;
-            const diff = document.getElementById('opt-difficulty').value;
-            const pen = document.getElementById('opt-penalties').checked;
+        function triggerStart(modeOverride) {
+            let url = `/start?mode=${modeOverride}`;
             
-            log(`INITIATING ${mode.toUpperCase()}...`);
-            fetch(`/start?mode=${mode}&duration=${dur}&delay=1.0&difficulty=${diff}&penalties=${pen}`);
+            if (modeOverride === 'TimeAttack') {
+                const dur = document.getElementById('opt-duration').value;
+                const diff = document.getElementById('opt-difficulty').value;
+                const pen = document.getElementById('opt-penalties').checked;
+                url += `&duration=${dur}&delay=1.0&difficulty=${diff}&penalties=${pen}`;
+            }
+            // Breach has no params yet
+            
+            log(`INITIATING ${modeOverride.toUpperCase()}...`);
+            fetch(url);
         }
 
         function triggerStop() {

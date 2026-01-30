@@ -8,7 +8,8 @@ import ujson as json
 from common.espnow_utils import init_espnow, unpack_message, pack_command, MSG_TYPE_ANNOUNCE, MSG_TYPE_HIT
 from microdot_asyncio import Microdot, Response, send_file
 from microdot_websocket import with_websocket
-from game_engine import GameMode, TimeAttackPlus, ZombieMode, MemoryPatterns
+from game_engine import GameMode, TimeAttackPlus, TheBreach
+
 
 # --- Configuration ---
 AP_SSID = "Airsoft-Master"
@@ -27,6 +28,7 @@ class HUB_SYSTEM:
         self.game = None
         self.wlan = None 
         self.available_nodes = [] 
+        self.node_battery = {} # Map ID -> Voltage 
 
     def broadcast_ws(self, msg_dict):
         msg_json = json.dumps(msg_dict)
@@ -36,7 +38,19 @@ class HUB_SYSTEM:
             except:
                 pass
     
-    def register_node(self, node_id, mac):
+    def update_battery(self, node_id, voltage, percent=0, charging=False):
+        self.node_battery[node_id] = {'voltage': voltage, 'percent': percent, 'charging': charging}
+        # Broadcast battery update
+        # We limit precision to 2 decimals to save bandwidth/noise
+        self.broadcast_ws({
+            "type": "battery", 
+            "node_id": node_id, 
+            "voltage": round(voltage, 2),
+            "percent": percent,
+            "charging": charging
+        })
+
+    def register_node(self, node_id, mac, voltage=None, percent=0, charging=False):
         # Update MAC if changed or new
         if node_id not in self.node_macs or self.node_macs[node_id] != mac:
             self.node_macs[node_id] = mac
@@ -52,10 +66,16 @@ class HUB_SYSTEM:
             self.available_nodes.sort()
             print(f"Node {node_id} added to pool. Total: {len(self.available_nodes)}")
             self.broadcast_ws({"type": "status", "msg": f"Node {node_id} Joined"})
+        
+        if voltage is not None:
+            self.update_battery(node_id, voltage, percent, charging)
 
-    def on_hit(self, node_id, voltage, mac):
-        print(f"HIT: Node {node_id}")
+    def on_hit(self, node_id, voltage, percent, charging, mac):
+        print(f"HIT: Node {node_id} V={voltage:.2f} P={percent}% C={charging}")
         self.nodes.add(node_id)
+        
+        # Update battery
+        self.update_battery(node_id, voltage, percent, charging)
         
         # Ensure registered
         self.register_node(node_id, mac)
@@ -103,45 +123,57 @@ class HUB_SYSTEM:
         print("GAME OVER")
         if self.game:
             if self.game.name == "Time Attack+":
-                self.save_score(self.game)
+                self.save_score(self.game, "TimeAttack")
+            elif self.game.name == "The Breach":
+                self.save_score(self.game, "TheBreach")
+            
+            # Capture mode before clearing
+            mode_name = "TimeAttack" if self.game.name == "Time Attack+" else "TheBreach"
             self.game = None
-        self.broadcast_ws({"type": "status", "msg": "GAME OVER"})
-        # Send updated leaderboard
-        self.broadcast_ws({"type": "leaderboard", "data": self.get_leaderboard()})
+            
+            self.broadcast_ws({"type": "status", "msg": "GAME OVER"})
+            # Send updated leaderboard for that mode
+            self.broadcast_ws({"type": "leaderboard", "mode": mode_name, "data": self.get_leaderboard(mode_name)})
 
-    def save_score(self, game_obj):
+    def save_score(self, game_obj, mode):
         try:
-            scores = self.get_leaderboard()
+            scores = self.get_leaderboard(mode)
+            filename = f'scores_{mode}.json'
             
-            # Add new
-            duration_min = game_obj.duration_ms / 60000.0
-            new_score = {
-                "hits": game_obj.hits,
-                "score": game_obj.score,
-                "max_combo": game_obj.max_combo,
-                "penalties": game_obj.penalty_count,
-                "difficulty": game_obj.difficulty,
-                "duration_min": duration_min,
-                # Avoid div by zero
-                "hpm": game_obj.hits / duration_min if duration_min > 0 else 0,
-                "hps": game_obj.hits / (game_obj.duration_ms / 1000.0) if game_obj.duration_ms > 0 else 0,
-                "avg_rt": (sum(game_obj.reaction_times)/len(game_obj.reaction_times)) if game_obj.reaction_times else 0
-            }
+            new_score = {}
+            if mode == "TimeAttack":
+                duration_min = game_obj.duration_ms / 60000.0
+                new_score = {
+                    "hits": game_obj.hits,
+                    "score": game_obj.score,
+                    "max_combo": game_obj.max_combo,
+                    "penalties": game_obj.penalty_count,
+                    "difficulty": game_obj.difficulty,
+                    "duration_min": duration_min,
+                    "avg_rt": (sum(game_obj.reaction_times)/len(game_obj.reaction_times)) if game_obj.reaction_times else 0
+                }
+            elif mode == "TheBreach":
+                new_score = {
+                    "level": game_obj.level,
+                    "score": game_obj.score,
+                    "hits": 0, # Could track total hits if needed, but Level/Score is key
+                    "avg_rt": 0 # Not tracked yet globally for breach?
+                }
+
             scores.append(new_score)
-            
-            # Sort by Score desc
             scores.sort(key=lambda x: x['score'], reverse=True)
-            scores = scores[:20] # Keep Top 20 for mixed difficulties
+            scores = scores[:20]
             
-            with open('scores_time_attack.json', 'w') as f:
+            with open(filename, 'w') as f:
                 json.dump(scores, f)
-            print("Score Saved")
+            print(f"Score Saved to {filename}")
         except Exception as e:
             print(f"Save Error: {e}")
 
-    def get_leaderboard(self):
+    def get_leaderboard(self, mode="TimeAttack"):
+        filename = f'scores_{mode}.json'
         try:
-            with open('scores_time_attack.json', 'r') as f:
+            with open(filename, 'r') as f:
                 return json.load(f)
         except:
             return []
@@ -155,7 +187,8 @@ async def index(request):
 
 @app.route('/api/leaderboard')
 async def get_leaderboard_route(request):
-    return json.dumps(hub.get_leaderboard())
+    mode = request.args.get('mode', 'TimeAttack')
+    return json.dumps(hub.get_leaderboard(mode))
 
 @app.route('/ws')
 async def websocket_handler(request):
@@ -165,8 +198,23 @@ async def websocket_handler(request):
     await ws.handshake()
     print("WS Connected")
     connected_clients.append(ws)
-    # Send initial leaderboard
-    await ws.send(json.dumps({"type": "leaderboard", "data": hub.get_leaderboard()}))
+    # Send initial leaderboards (Both?)
+    # Frontend can filter, or request. Let's send TimeAttack as default.
+    await ws.send(json.dumps({"type": "leaderboard", "mode": "TimeAttack", "data": hub.get_leaderboard("TimeAttack")}))
+    await ws.send(json.dumps({"type": "leaderboard", "mode": "TheBreach", "data": hub.get_leaderboard("TheBreach")}))
+    
+    # Send all current battery levels
+    for nid, data in hub.node_battery.items():
+        # Handle backward compatibility if dict was somehow old (unlikely but safe)
+        if isinstance(data, dict):
+            await ws.send(json.dumps({
+                "type": "battery", 
+                "node_id": nid, 
+                "voltage": round(data['voltage'], 2),
+                "percent": data.get('percent', 0),
+                "charging": data.get('charging', False)
+            }))
+
     try:
         while True:
             msg = await ws.receive()
@@ -176,12 +224,14 @@ async def websocket_handler(request):
         if ws in connected_clients:
             connected_clients.remove(ws)
 
+
 @app.route('/start')
 async def start_game(request):
     mode = request.args.get('mode', 'TimeAttack')
     print(f"Starting {mode}")
     
     if not hub.available_nodes:
+        # For testing without nodes, we might want to bypass, but strictly:
         return "No Nodes Connected"
     
     if mode == 'TimeAttack':
@@ -191,10 +241,9 @@ async def start_game(request):
         pen = (request.args.get('penalties', 'true') == 'true')
         
         hub.game = TimeAttackPlus(hub, duration_min=duration, difficulty=diff, penalties=pen, respawn_delay=delay) 
-    elif mode == 'Zombie':
-        hub.game = ZombieMode(hub)
-    elif mode.startswith('Memory'):
-        hub.game = MemoryPatterns(hub, variance="Hard" if "Hard" in mode else "Standard")
+    elif mode == 'TheBreach':
+        # Default start level 1
+        hub.game = TheBreach(hub, start_level=1)
     
     if hub.game:
         hub.game.start()
@@ -236,14 +285,28 @@ async def espnow_listener():
                 try:
                     data = unpack_message(msg)
                     if data:
-                        node_id, batt, hit, msg_type = data
-                        # print(f"DEBUG: Unpacked -> ID:{node_id} Type:{msg_type}")
-                        
-                        if msg_type == MSG_TYPE_ANNOUNCE:
-                            hub.register_node(node_id, host)
-                        elif msg_type == MSG_TYPE_HIT:
-                            if hit:
-                                hub.on_hit(node_id, batt, host)
+                        # Updated Unpack: <ID><BATT_V><BATT_P><HIT><MSG_TYPE><CHARGING>
+                        if len(data) == 6:
+                            node_id, batt, pct, hit, msg_type, chg = data
+                            charging = bool(chg)
+                            
+                            if msg_type == MSG_TYPE_ANNOUNCE:
+                                hub.register_node(node_id, host, batt, pct, charging)
+                            elif msg_type == MSG_TYPE_HIT:
+                                if hit:
+                                    hub.on_hit(node_id, batt, pct, charging, host)
+                        elif len(data) == 4:
+                             # Legacy Fallback (if mix of nodes)
+                            node_id, batt, hit, msg_type = data
+                            if msg_type == MSG_TYPE_ANNOUNCE:
+                                hub.register_node(node_id, host, batt)
+                            elif msg_type == MSG_TYPE_HIT:
+                                if hit:
+                                    # Fallback on_hit needs signature match? 
+                                    # Python accepts keyword args but here we called positional.
+                                    # Better to update on_hit to defaults?
+                                    # Or just pass 0/False
+                                    hub.on_hit(node_id, batt, 0, False, host)
                     else:
                         print("DEBUG: Unpack returned None")
                 except Exception as ex:
