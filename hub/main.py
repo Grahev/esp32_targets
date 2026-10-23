@@ -1,7 +1,8 @@
+import sys
 import time
+import machine
 import network
 import uasyncio as asyncio
-from machine import Pin
 import ujson as json
 
 # Libraries
@@ -95,6 +96,19 @@ class HUB_SYSTEM:
         # We need to construct a unicast packet for Set Mode
         # Re-use send_node_cmd logic but for Mode
         self.send_node_mode(node_id, self.sys_mode)
+
+    def handle_packet(self, host, msg):
+        data = unpack_message(msg)
+        if not data:
+            print(f"Ignored {len(msg)}-byte packet from {host}")
+            return
+        # <ID><BATT_V><BATT_P><HIT><MSG_TYPE><CHARGING>
+        node_id, batt, pct, hit, msg_type, chg = data
+        charging = bool(chg)
+        if msg_type == MSG_TYPE_ANNOUNCE:
+            self.register_node(node_id, host, batt, pct, charging)
+        elif msg_type == MSG_TYPE_HIT and hit:
+            self.on_hit(node_id, batt, pct, charging, host)
 
     def send_node_mode(self, node_id, mode):
         if self.esp and node_id in self.node_macs:
@@ -314,46 +328,34 @@ async def espnow_listener():
     print(f"ESP-NOW Listener Active (STA Mode). Channel: {wlan.config('channel')}")
     
     while True:
-        if e.any():
-            host, msg = e.recv()
-            if msg:
-                # print(f"DEBUG: Msg from {host} len={len(msg)}")
-                try:
-                    data = unpack_message(msg)
-                    if data:
-                        # Updated Unpack: <ID><BATT_V><BATT_P><HIT><MSG_TYPE><CHARGING>
-                        if len(data) == 6:
-                            node_id, batt, pct, hit, msg_type, chg = data
-                            charging = bool(chg)
-                            
-                            if msg_type == MSG_TYPE_ANNOUNCE:
-                                hub.register_node(node_id, host, batt, pct, charging)
-                            elif msg_type == MSG_TYPE_HIT:
-                                if hit:
-                                    hub.on_hit(node_id, batt, pct, charging, host)
-                        elif len(data) == 4:
-                             # Legacy Fallback (if mix of nodes)
-                            node_id, batt, hit, msg_type = data
-                            if msg_type == MSG_TYPE_ANNOUNCE:
-                                hub.register_node(node_id, host, batt)
-                            elif msg_type == MSG_TYPE_HIT:
-                                if hit:
-                                    # Fallback on_hit needs signature match? 
-                                    # Python accepts keyword args but here we called positional.
-                                    # Better to update on_hit to defaults?
-                                    # Or just pass 0/False
-                                    hub.on_hit(node_id, batt, 0, False, host)
-                    else:
-                        print("DEBUG: Unpack returned None")
-                except Exception as ex:
-                    print(f"DEBUG: Unpack Error: {ex}")
+        try:
+            # Drain everything that arrived since the last pass
+            while e.any():
+                host, msg = e.recv(0)
+                if msg:
+                    hub.handle_packet(host, msg)
+        except Exception as ex:
+            # A bad packet or radio error must never kill the listener
+            print("ESP-NOW listener error:")
+            sys.print_exception(ex)
         await asyncio.sleep_ms(10)
 
 # --- Async Game Tick ---
 async def game_loop():
     while True:
         if hub.game:
-            hub.game.tick()
+            try:
+                hub.game.tick()
+            except Exception as ex:
+                # Abort the broken game instead of freezing with targets lit
+                print("Game tick error, aborting game:")
+                sys.print_exception(ex)
+                try:
+                    hub.game_over(save=False)
+                    hub.broadcast_ws({"type": "status", "msg": "GAME ERROR"})
+                except Exception as ex2:
+                    sys.print_exception(ex2)
+                    hub.game = None
         await asyncio.sleep_ms(100)
 
 # --- Main Entry ---
@@ -376,4 +378,12 @@ async def main():
     await app.start_server(port=80, debug=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as ex:
+        # Crash outside the guarded loops: log, then reboot instead of sitting
+        # at the REPL. Ctrl-C (KeyboardInterrupt) is not an Exception, so
+        # mpremote can still stop the program.
+        sys.print_exception(ex)
+        time.sleep(3)
+        machine.reset()

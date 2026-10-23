@@ -44,6 +44,31 @@ async def scenario_hits():
     print('H> stop ->', await main.stop_game(Req({})))
 
 
+async def scenario_crash():
+    # REVIEW #3: an exception in tick() aborts the game; one in packet
+    # handling is logged and the listener keeps going
+    print('H> start ->', await main.start_game(Req({'mode': 'TimeAttack', 'duration': '1'})))
+    await asyncio.sleep(1)
+
+    def bad_tick():
+        raise ValueError('injected tick failure')
+    hub.game.tick = bad_tick
+    await asyncio.sleep_ms(500)
+    print('H> after tick crash: game', hub.game, 'sys_mode', hub.sys_mode)
+
+    real = hub.handle_packet
+    seen = []
+
+    def flaky(host, msg):
+        seen.append(1)
+        if len(seen) == 1:
+            raise ValueError('injected packet failure')
+        real(host, msg)
+    hub.handle_packet = flaky
+    await asyncio.sleep(12)
+    print('H> packets after injected failure:', len(seen), '(>1 means listener survived)')
+
+
 async def scenario_idle():
     # Just run the listener: shows registration, heartbeats, offline detection
     await asyncio.sleep(40)
