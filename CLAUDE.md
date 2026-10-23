@@ -64,7 +64,17 @@ Airsoft reaction-target game. One HUB runs the game and a web UI. One or more NO
    - `/api/leaderboard?mode=` returns the leaderboard.
    - `/ws` is a WebSocket that pushes `status`, `hit`, `score`, `timer`, `battery` and `leaderboard` messages to the browser.
 
-**Game flow (`game_engine.py`).** The game modes are `TimeAttackPlus` and `TheBreach`. Both are `GameMode` state machines. They drive LEDs through `hub.send_node_cmd`/`broadcast_led` and the UI through `broadcast_ws`. When a game starts, the hub puts the nodes in mode 1 (Active). At game over, it saves the score to `scores_<TimeAttack|TheBreach>.json` (top 20), switches the nodes to mode 2 (Standby), then to mode 0 (Idle) after 10 s. `scores_time_attack.json` is not referenced by the code.
+**Game flow (`game_engine.py`).** The game modes are `TimeAttackPlus` and `TheBreach`. Both are `GameMode` state machines. They drive LEDs through `hub.send_node_cmd`/`broadcast_led` and the UI through `broadcast_ws`. When a game starts, the hub puts the nodes in mode 1 (Active). At game over, it saves the score to `scores_<TimeAttack|TheBreach>.json` (top 20), switches the nodes to mode 2 (Standby), then to mode 0 (Idle) after 10 s. `scores_time_attack.json` is not referenced by the code. It has an older score format (`hpm`/`hps` fields), so it's left over from an earlier version.
+
+**Game modes.**
+- **Time Attack+** (`TimeAttackPlus`): runs for a set time. Yellow ×3 then green start sequence. A red node is a live target, and a hit scores 10/5/2 points by reaction time (<750 / ≤1400 / >1400 ms), ×1.5 once the combo passes 3. A hit on a dark node costs −15 and freezes all nodes orange for 1 s. The minimum number of lit targets rises every 30 s, depending on difficulty (`DifficultyConfig`).
+- **The Breach** (`TheBreach`): a memory game with 10 levels. Nodes flash a blue sequence (3 → 9 long), and the player hits them in order. A wrong node or a gap of more than 5 s fails the level and ends the game. Each level adds +100 plus a time bonus against par (2 s per target).
+
+**Hardware actually used.** Node: SW-420 vibration sensor (digital, rising-edge IRQ), 1× WS2812 on GPIO0 and battery voltage on A0. Hub: only the radio and WiFi, with no GPIO, buttons or display. Neither board uses buttons or displays. The PRD mentions a pairing button, but it isn't implemented.
+
+**Radio details.** The structs use native alignment: the node message is 21 bytes and the command is 7 bytes on ESP32, ESP8266 and the PC alike. The ESP8266 node also keeps its default open AP (`MicroPython-xxxxxx`) active, and its ESP-NOW packets come from its **AP** MAC (`4a:55:…`), not its STA MAC.
+
+**Board-only files.** `boot.py` on both boards is the MicroPython default (the node's version only adds `gc.collect()`). The `scores_*.json` files exist only on the hub. Repo-only: `docs/`, `tests/`, `prd.md`, `README.md`. The PRD and docs describe an older design (ESP32-S2 nodes, Zombie mode, pairing button) that the code doesn't follow.
 
 **Repo path → board path.** The repo layout is not the same as the board layout:
 
@@ -81,6 +91,8 @@ Upload hub files one by one, using the paths in the table. The board copies use 
 ## Commands
 
 All commands that stream output or open a REPL **must** be wrapped in `timeout`, or they will hang forever.
+
+Any `mpremote` command (`ls`, `cat`, `cp`, `exec`) stops the running `main.py`, and it stays stopped until a reset. **Always reset the board afterwards** (node first, then hub). `mpremote repl` fails in a non-interactive shell (termios error), so read the boot log with `timeout 20 python3 tools/serial_log.py $HUB 12 --reset` instead.
 
 ```bash
 # List files on a board
