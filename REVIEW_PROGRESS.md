@@ -15,10 +15,22 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] ARCHITECTURE.md
 
 ## Phase 2 — Code review
-- [ ] REVIEW.md with Critical / High / Medium / Low findings
+- [x] REVIEW.md with Critical / High / Medium / Low findings (1 Critical, 5 High, 12 Medium, 17 Low)
 
 ## Phase 3 — Fix (Critical → Medium)
-- [ ] (fix list filled in after Phase 2)
+- [ ] #1 atomic score save + corrupt-file guard
+- [ ] #2 /stop returns nodes to standby/idle
+- [ ] #3 guarded listener/game loop, crash -> reset
+- [ ] #4 + #18 node heartbeat/offline tracking, peer cleanup
+- [ ] #5 + #7 + #6 protocol v2: unicast hits w/ retry, seq dedupe, MAC-based IDs (hub+node)
+- [ ] #8 #9 #10 node: AP off, throttled ADC/LED, guarded loop
+- [ ] #11 remove blocking sleeps
+- [ ] #12 Time Attack+ spawn delay / no-repeat
+- [ ] #13 Breach bonus compounding
+- [ ] #14 websocket send timeout / drop dead clients
+- [ ] #15 start/stop validation + UI feedback
+- [ ] #16 test suite
+- [ ] #17 top-level crash recovery (WDT -> needs discussion)
 
 ## Phase 4 — Multi-node readiness
 - [ ] Node identity from MAC, no code edits to add a node
