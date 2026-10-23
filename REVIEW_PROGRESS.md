@@ -21,9 +21,9 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] #1 atomic score save + corrupt-file guard
 - [x] #2 /stop returns nodes to standby/idle
 - [x] #3 guarded listener/game loop, crash -> reset
-- [ ] #4 + #18 node heartbeat/offline tracking, peer cleanup
-- [ ] #5 + #7 + #6 protocol v2: unicast hits w/ retry, seq dedupe, MAC-based IDs (hub+node)
-- [ ] #8 #9 #10 node: AP off, throttled ADC/LED, guarded loop
+- [x] #4 + #18 node heartbeat/offline tracking, peer cleanup
+- [x] #5 + #7 + #6 protocol v2: unicast hits w/ retry, seq dedupe, MAC-based IDs (hub+node)
+- [x] #8 #9 #10 node: AP off, throttled ADC/LED, guarded loop
 - [ ] #11 remove blocking sleeps
 - [ ] #12 Time Attack+ spawn delay / no-repeat
 - [ ] #13 Breach bonus compounding
@@ -33,8 +33,8 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [ ] #17 top-level crash recovery (WDT -> needs discussion)
 
 ## Phase 4 — Multi-node readiness
-- [ ] Node identity from MAC, no code edits to add a node
-- [ ] Hub tracks join / heartbeat / offline
+- [x] Node identity from MAC, no code edits to add a node (done with #6)
+- [x] Hub tracks join / heartbeat / offline (done with #4)
 - [ ] tools/fake_nodes.py written and run, results recorded
 - [ ] docs/ADDING_A_NODE.md
 

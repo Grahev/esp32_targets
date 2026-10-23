@@ -71,14 +71,15 @@ async def scenario_crash():
 
 async def scenario_idle():
     # Just run the listener: shows registration, heartbeats, offline detection
-    await asyncio.sleep(40)
-    print('H> nodes', hub.available_nodes)
+    t0 = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), t0) < 50000:
+        await asyncio.sleep(5)
+        print('H> t=%ds online %s' % (time.ticks_diff(time.ticks_ms(), t0) // 1000, hub.available_nodes))
 
 
 async def run():
     main.setup_wifi()
-    asyncio.create_task(main.espnow_listener())
-    asyncio.create_task(main.game_loop())
+    main.start_tasks()
     await wait_nodes()
     await globals()['scenario_' + SCENARIO]()
     print('H> done')

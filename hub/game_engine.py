@@ -19,6 +19,10 @@ class GameMode:
         """Called every loop to handle timing/timeouts"""
         pass
 
+    def on_node_lost(self, node_id):
+        """A node stopped sending heartbeats and left engine.available_nodes."""
+        pass
+
 class DifficultyConfig:
     # Key: Difficulty Level -> [Activation Speed Factor/Seconds, Min Active Targets]
     # Curve: S0, S1, S2, S3, S4, S5 (0s, 30s, 60s, 90s, 120s, 150s+)
@@ -93,6 +97,12 @@ class TimeAttackPlus(GameMode):
     def stop(self):
         self.state = "FINISHED"
         self.engine.broadcast_led(0, 0, 0)
+
+    def on_node_lost(self, node_id):
+        # A dead target can't be hit; forget it so the scheduler lights another
+        self.active_targets.pop(node_id, None)
+        self.respawn_queue = [item for item in self.respawn_queue if item[1] != node_id]
+        self.spawn_history.pop(node_id, None)
 
     def tick(self):
         now = time.ticks_ms()
@@ -221,8 +231,11 @@ class TimeAttackPlus(GameMode):
         # Calculate weights: Higher weight if lower spawn_history
         # Simple inversion: Max history - current history + 1
         # Check if history dict contains all avail nodes
+        # A node that joined mid-game starts level with the least-used node,
+        # instead of 0 (which would make it light up far more often)
+        floor = min(self.spawn_history.values()) if self.spawn_history else 0
         for n in available:
-            if n not in self.spawn_history: self.spawn_history[n] = 0
+            if n not in self.spawn_history: self.spawn_history[n] = floor
             
         max_h = max(self.spawn_history.values()) if self.spawn_history else 0
         weights = [(max_h - self.spawn_history[n] + 1) for n in available]
@@ -416,6 +429,17 @@ class TheBreach(GameMode):
         self.state = "STOPPED"
         self.engine.broadcast_led(0, 0, 0)
 
+    def on_node_lost(self, node_id):
+        if self.state in ("FAILED", "FINISHED", "STOPPED"):
+            return
+        if node_id in self.sequence:
+            # The sequence can't be completed any more: replay this level
+            # with the nodes that are still online
+            print(f"Node {node_id} lost mid-level, restarting level {self.level}")
+            self.engine.broadcast_ws({"type": "status", "msg": f"NODE {node_id} LOST"})
+            self.engine.broadcast_led(0, 0, 0)
+            self.start_level_sequence()
+
     def start_level_sequence(self):
         # Generate Sequence based on level
         seq_len, _ = self.get_level_specs()
@@ -426,6 +450,10 @@ class TheBreach(GameMode):
         # "Cross-field transitions" implies distinct. 
         # Let's try to make them distinct if possible.
         avail = self.engine.available_nodes[:]
+        if not avail:
+            self.sequence = []
+            self.fail_level("NO NODES")
+            return
         if len(avail) < 2:
             print("Not enough nodes for sequence!")
             self.sequence = [avail[0]] * seq_len if avail else []

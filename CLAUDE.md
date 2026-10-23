@@ -30,39 +30,46 @@ NODE=$(ls /dev/serial/by-id/usb-1a86_* | head -1)
 boot.py
 main.py                  # entry point, runs on boot
 game_engine.py           # core game logic
+storage.py               # atomic JSON load/save
+node_registry.py         # node IDs by MAC, heartbeat/offline tracking
 common/                  # shared code (hub + node)
-hub/                     # hub-specific code
+hub/                     # hub-specific code (static/index.html)
 lib/                     # libraries
+nodes.json               # LIVE DATA — node MAC -> ID map, written by the hub
 scores_TheBreach.json    # LIVE DATA — high scores
 scores_TimeAttack.json   # LIVE DATA — high scores
 scores_time_attack.json  # LIVE DATA — high scores (possibly an old duplicate, ask before deleting)
 ```
 
-On first use, read the code and add a short "How the project works" section below, describing how the hub and nodes communicate.
-
 ## How the project works
 
 Airsoft reaction-target game. One HUB runs the game and a web UI. One or more NODES are targets, each with a vibration sensor and one WS2812 LED.
 
-**Boards.** The HUB is an ESP32 (`ESP32_GENERIC`, MicroPython 1.27). The NODE is actually an **ESP8266** (Wemos D1 Mini, `ESP8266_GENERIC`, MicroPython 1.27), not an ESP32. It has the SW-420 sensor on GPIO5 (D1), the NeoPixel on GPIO0 (D3) and battery sensing on ADC(0). Its ID comes from `config.json` (`{"node_id": N}`).
+**Boards.** The HUB is an ESP32 (`ESP32_GENERIC`, MicroPython 1.27). The NODE is actually an **ESP8266** (Wemos D1 Mini, `ESP8266_GENERIC`, MicroPython 1.27), not an ESP32. It has the SW-420 sensor on GPIO5 (D1), the NeoPixel on GPIO0 (D3) and battery sensing on ADC(0).
 
-**Radio: ESP-NOW on WiFi channel 1.** The packet formats live in `common/espnow_utils.py`, which both boards share:
-- Node → Hub: `struct 'ifiBiB'` = `(node_id, batt_v, batt_pct, hit, msg_type, charging)`. `msg_type` is 0 = HIT or 1 = ANNOUNCE.
-  - Nodes send everything to the broadcast MAC `ff:ff:ff:ff:ff:ff`, so they don't need to know the hub's MAC.
+**Node identity.** The hub identifies a node by its MAC address and assigns it an ID, saved in `nodes.json` on the hub. A new node gets the ID it claims in `config.json` if that ID is free, otherwise the lowest free one. The hub then sends `CMD_SET_ID` and the node writes the ID to its own `config.json`. No code edits are needed to add a node.
+
+**Radio: ESP-NOW on WiFi channel 1** (`WIFI_CHANNEL`). The packet formats live in `common/espnow_utils.py`, which both boards share:
+- Node → Hub (v2): `'<BBHHfBB'`, 12 bytes = `(version=2, msg_type, claimed_id, seq, batt_v, batt_pct, flags)`. `msg_type` is 0 = HIT or 1 = ANNOUNCE (heartbeat). Flags: bit 0 = hit, bit 1 = charging. The hub still accepts the old v1 21-byte `'ifiBiB'` packet, so nodes can be upgraded one at a time.
+  - A node broadcasts until it receives its first command from the hub. From then on it **unicasts** to the hub's STA MAC, so packets are ACKed and retried by the radio, plus 3 app-level retries if `send()` returns False. After 3 failed messages in a row it goes back to broadcasting.
+  - The hub drops a packet that repeats the `(mac, seq)` of the previous one within 2 s (a retry).
   - Each node sends an ANNOUNCE at boot and then every 5 s. It sends a HIT on each sensor IRQ (300 ms debounce), whatever mode it is in.
-- Hub → Node: `struct 'iBBB'` = `(cmd, a, b, c)`.
+- Hub → Node: `'iBBB'`, 7 bytes = `(cmd, a, b, c)`. This format is unchanged from v1.
   - `cmd 1` = set the LED to `(r, g, b)`. The node only applies it in mode 1.
   - `cmd 2` = set the mode to `a`: 0 Idle (dim blue, pulsing when battery <10%), 1 Active (game), 2 Standby (LED off).
-  - Commands go out as a broadcast plus a unicast to every known node MAC.
+  - `cmd 3` = "your ID is `a`" (the node saves it).
+  - Commands are unicast to each online node (`sync=False`, so the hub doesn't wait for each ACK). SET_MODE is also broadcast, so nodes the hub hasn't registered yet follow it too.
+- The node turns off its ESP8266 default AP at boot. Its packets come from its STA MAC (`48:55:19:ed:f4:f4` for node 1).
 
-**Hub (`main.py`).** It runs uasyncio with three tasks:
-1. `espnow_listener`: STA interface, polls every 10 ms. An ANNOUNCE calls `register_node`, which records the ID → MAC, adds the node as a peer and to `available_nodes`, stores the battery level and unicasts the current mode to that node. A HIT calls `on_hit`, which passes it to `hub.game.on_hit(node_id)`.
-2. `game_loop`: calls `hub.game.tick()` every 100 ms.
-3. A Microdot web server on the open AP `Airsoft-Master` at 192.168.4.1:
+**Hub (`main.py`).** It runs uasyncio with four tasks. Each loop is wrapped in try/except, and a crash in `main()` reboots the board.
+1. `espnow_listener`: drains all pending packets every 10 ms into `hub.handle_packet`, which does duplicate check → ID from MAC → `node_seen` (join: add peer, add to `available_nodes`, send current mode) → battery → `on_hit`.
+2. `node_monitor`: every 1 s, a node with no packet for 15 s goes offline. It's removed from `available_nodes`, its peer is deleted, the UI is told, and `game.on_node_lost(id)` is called.
+3. `game_loop`: calls `hub.game.tick()` every 100 ms. An exception aborts the game instead of freezing it.
+4. A Microdot web server on the open AP `Airsoft-Master` at 192.168.4.1:
    - `/` serves `hub/static/index.html`.
    - `/start?mode=TimeAttack|TheBreach&…` and `/stop` start and stop games.
    - `/api/leaderboard?mode=` returns the leaderboard.
-   - `/ws` is a WebSocket that pushes `status`, `hit`, `score`, `timer`, `battery` and `leaderboard` messages to the browser.
+   - `/ws` is a WebSocket that pushes `status`, `hit`, `score`, `timer`, `battery`, `nodes` and `leaderboard` messages to the browser.
 
 **Game flow (`game_engine.py`).** The game modes are `TimeAttackPlus` and `TheBreach`. Both are `GameMode` state machines. They drive LEDs through `hub.send_node_cmd`/`broadcast_led` and the UI through `broadcast_ws`. When a game starts, the hub puts the nodes in mode 1 (Active). At game over, it saves the score to `scores_<TimeAttack|TheBreach>.json` (top 20), switches the nodes to mode 2 (Standby), then to mode 0 (Idle) after 10 s. `scores_time_attack.json` is not referenced by the code. It has an older score format (`hpm`/`hps` fields), so it's left over from an earlier version.
 
@@ -72,21 +79,19 @@ Airsoft reaction-target game. One HUB runs the game and a web UI. One or more NO
 
 **Hardware actually used.** Node: SW-420 vibration sensor (digital, rising-edge IRQ), 1× WS2812 on GPIO0 and battery voltage on A0. Hub: only the radio and WiFi, with no GPIO, buttons or display. Neither board uses buttons or displays. The PRD mentions a pairing button, but it isn't implemented.
 
-**Radio details.** The structs use native alignment: the node message is 21 bytes and the command is 7 bytes on ESP32, ESP8266 and the PC alike. The ESP8266 node also keeps its default open AP (`MicroPython-xxxxxx`) active, and its ESP-NOW packets come from its **AP** MAC (`4a:55:…`), not its STA MAC.
-
 **Board-only files.** `boot.py` on both boards is the MicroPython default (the node's version only adds `gc.collect()`). The `scores_*.json` files exist only on the hub. Repo-only: `docs/`, `tests/`, `prd.md`, `README.md`. The PRD and docs describe an older design (ESP32-S2 nodes, Zombie mode, pairing button) that the code doesn't follow.
 
 **Repo path → board path.** The repo layout is not the same as the board layout:
 
 | Repo | Board |
 |------|-------|
-| `hub/main.py`, `hub/game_engine.py` | HUB `:main.py`, `:game_engine.py` |
+| `hub/main.py`, `hub/game_engine.py`, `hub/storage.py`, `hub/node_registry.py` | HUB `:main.py`, `:game_engine.py`, `:storage.py`, `:node_registry.py` |
 | `hub/lib/*.py` | HUB `:lib/` |
 | `hub/static/index.html` | HUB `:hub/static/index.html` |
-| `node/main.py`, `node/config.json` | NODE `:main.py`, `:config.json` (config is per node, so keep each node's ID) |
+| `node/main.py`, `node/config.json` | NODE `:main.py`, `:config.json` (config is per node and written by the node itself; don't upload the repo copy over an existing node) |
 | `common/espnow_utils.py` | both boards, `:common/espnow_utils.py` |
 
-Upload hub files one by one, using the paths in the table. The board copies use CRLF line endings, but their content matches the repo as of commit 5d2ba5a.
+Upload hub files one by one, using the paths in the table. Never upload `nodes.json` or `scores_*.json`.
 
 ## Commands
 
@@ -137,6 +142,7 @@ Only one program can use a serial port at a time. If you get "port is busy", som
 ## Rules — do not break these
 
 - **Never overwrite or delete `scores_*.json` on the board.** They hold real game scores. Never upload the repo's copies of them.
+- Treat `nodes.json` on the hub the same way: it maps node MACs to IDs, and losing it renumbers the targets.
 - **Never run `esptool erase_flash`, `write_flash`, or reflash MicroPython** without asking me first.
 - **Never delete files on a board** (`mpremote rm`) without asking me first.
 - Before a large change, back up the affected board to `./backup_hub/` or `./backup_node/`. These folders are in `.gitignore`.

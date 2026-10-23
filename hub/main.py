@@ -6,11 +6,13 @@ import uasyncio as asyncio
 import ujson as json
 
 # Libraries
-from common.espnow_utils import init_espnow, unpack_message, pack_command, MSG_TYPE_ANNOUNCE, MSG_TYPE_HIT
+from common.espnow_utils import (init_espnow, unpack_message, pack_command, MSG_TYPE_HIT,
+                                 CMD_SET_LED, CMD_SET_MODE, CMD_SET_ID, BROADCAST, WIFI_CHANNEL)
 from microdot_asyncio import Microdot, Response, send_file
 from microdot_websocket import with_websocket
 from game_engine import GameMode, TimeAttackPlus, TheBreach
 from storage import load_json, save_json
+from node_registry import NodeRegistry, mac_key
 
 
 # --- Configuration ---
@@ -18,28 +20,27 @@ AP_SSID = "Airsoft-Master"
 
 # --- Globals ---
 app = Microdot()
-game_engine = None # Placeholder class wrapper if needed
 connected_clients = []
 
 # --- System Class ---
 class HUB_SYSTEM:
     def __init__(self):
-        self.nodes = set()
-        self.node_macs = {} # Map ID -> MAC
+        self.registry = NodeRegistry()
+        self.node_macs = self.registry.macs  # Map ID -> MAC
         self.esp = None
         self.game = None
-        self.wlan = None 
-        self.available_nodes = [] 
-        self.available_nodes = [] 
-        self.node_battery = {} # Map ID -> Voltage 
+        self.wlan = None
+        self.available_nodes = []  # online node IDs, sorted; read by the game modes
+        self.node_battery = {}  # Map ID -> {'voltage', 'percent', 'charging'}
         self.sys_mode = 0 # 0=Idle, 1=Active, 2=Standby
         self._idle_task = None
-        
+
     def set_system_mode(self, mode):
         # 0=Idle, 1=Active, 2=Standby
         print(f"Setting System Mode: {mode}")
         self.sys_mode = mode
-        self.broadcast_command(2, mode, 0, 0) # CMD 2 = Set Mode
+        # Broadcast as well, so nodes the hub hasn't registered yet follow too
+        self.broadcast_command(CMD_SET_MODE, mode, 0, 0, also_broadcast=True)
 
     async def _auto_idle(self):
         print("Standby... Waiting 10s for Idle")
@@ -72,103 +73,106 @@ class HUB_SYSTEM:
             "charging": charging
         })
 
-    def register_node(self, node_id, mac, voltage=None, percent=0, charging=False):
-        # Update MAC if changed or new
-        if node_id not in self.node_macs or self.node_macs[node_id] != mac:
-            self.node_macs[node_id] = mac
-            print(f"Registered Node {node_id} MAC: {mac}")
-            try:
-                self.esp.add_peer(mac)
-            except:
-                pass # Peer might exist
-        
-        # Add to available list
-        if node_id not in self.available_nodes:
-            self.available_nodes.append(node_id)
-            self.available_nodes.sort()
-            print(f"Node {node_id} added to pool. Total: {len(self.available_nodes)}")
-            self.broadcast_ws({"type": "status", "msg": f"Node {node_id} Joined"})
-        
-        if voltage is not None:
-            self.update_battery(node_id, voltage, percent, charging)
-            
-        # Sync new node to current mode (unicast)
-        # We need to construct a unicast packet for Set Mode
-        # Re-use send_node_cmd logic but for Mode
-        self.send_node_mode(node_id, self.sys_mode)
+    def broadcast_nodes(self):
+        self.broadcast_ws({"type": "nodes", "online": self.available_nodes})
 
     def handle_packet(self, host, msg):
         data = unpack_message(msg)
         if not data:
             print(f"Ignored {len(msg)}-byte packet from {host}")
             return
-        # <ID><BATT_V><BATT_P><HIT><MSG_TYPE><CHARGING>
-        node_id, batt, pct, hit, msg_type, chg = data
-        charging = bool(chg)
-        if msg_type == MSG_TYPE_ANNOUNCE:
-            self.register_node(node_id, host, batt, pct, charging)
-        elif msg_type == MSG_TYPE_HIT and hit:
-            self.on_hit(node_id, batt, pct, charging, host)
+        ver, msg_type, claimed_id, seq, batt, pct, hit, charging = data
+        now = time.ticks_ms()
+        if self.registry.is_duplicate(host, seq, now):
+            return  # node retried a packet we already handled
+        node_id = self.registry.node_id_for(host, claimed_id)
+        self.node_seen(node_id, host, now)
+        if ver >= 2 and claimed_id != node_id:
+            self.send_cmd(node_id, CMD_SET_ID, node_id, 0, 0)  # node stores it
+        self.update_battery(node_id, batt, pct, charging)
+        if msg_type == MSG_TYPE_HIT and hit:
+            self.on_hit(node_id)
 
-    def send_node_mode(self, node_id, mode):
-        if self.esp and node_id in self.node_macs:
-             mac = self.node_macs[node_id]
-             cmd = pack_command(2, mode, 0, 0) # 2=Set Mode
-             try:
-                 self.esp.send(mac, cmd)
-             except:
-                 pass
+    def node_seen(self, node_id, mac, now):
+        if not self.registry.seen(node_id, mac, now):
+            return
+        # Node just came online (first time, or back after a timeout)
+        try:
+            self.esp.add_peer(mac)
+        except OSError as ex:
+            # ESP-NOW holds ~20 peers; offline nodes are removed in node_lost()
+            if 'EXIST' not in str(ex):
+                print(f"add_peer failed for node {node_id}: {ex}")
+        self.available_nodes.append(node_id)
+        self.available_nodes.sort()
+        print(f"Node {node_id} online ({mac_key(mac)}). Online: {self.available_nodes}")
+        self.broadcast_ws({"type": "status", "msg": f"Node {node_id} Joined"})
+        self.broadcast_nodes()
+        # Sync the new node to the current mode
+        self.send_cmd(node_id, CMD_SET_MODE, self.sys_mode, 0, 0)
 
-    def on_hit(self, node_id, voltage, percent, charging, mac):
-        print(f"HIT: Node {node_id} V={voltage:.2f} P={percent}% C={charging}")
-        self.nodes.add(node_id)
-        
-        # Update battery
-        self.update_battery(node_id, voltage, percent, charging)
-        
-        # Ensure registered
-        self.register_node(node_id, mac)
-            
+    def check_nodes(self):
+        """Drop nodes whose heartbeat stopped (called every second)."""
+        for node_id in self.registry.expire(time.ticks_ms()):
+            self.node_lost(node_id)
+
+    def node_lost(self, node_id):
+        if node_id in self.available_nodes:
+            self.available_nodes.remove(node_id)
+        print(f"Node {node_id} offline. Online: {self.available_nodes}")
+        mac = self.node_macs.get(node_id)
+        if mac:
+            try:
+                self.esp.del_peer(mac)
+            except OSError:
+                pass
+        self.broadcast_ws({"type": "status", "msg": f"Node {node_id} Offline"})
+        self.broadcast_nodes()
+        if self.game:
+            self.game.on_node_lost(node_id)
+
+    def on_hit(self, node_id):
+        print(f"HIT: Node {node_id}")
         if self.game:
             self.game.on_hit(node_id)
-        
         self.broadcast_ws({"type": "hit", "node_id": node_id, "time": time.ticks_ms()})
 
-    def send_node_cmd(self, node_id, r, g, b):
-        if self.esp and node_id in self.node_macs:
-            mac = self.node_macs[node_id]
-            cmd = pack_command(1, r, g, b) # CMD 1 = Set LED
-            try:
-                self.esp.send(mac, cmd)
-                print(f"Sent LED {r},{g},{b} to {node_id}")
-            except Exception as e:
-                print(f"Send Error: {e}")
-        else:
-            print(f"Cannot send to Node {node_id} (Unknown MAC)")
+    def send_cmd(self, node_id, cmd_id, a, b, c, sync=True):
+        """Unicast a command to an online node. Unicast frames are ACKed and retried by the radio."""
+        if not (self.esp and self.registry.is_online(node_id)):
+            print(f"Cannot send to Node {node_id} (offline)")
+            return False
+        try:
+            ok = self.esp.send(self.node_macs[node_id], pack_command(cmd_id, a, b, c), sync)
+            if sync and not ok:
+                print(f"Node {node_id} did not ACK cmd {cmd_id}")
+            return ok
+        except OSError as ex:
+            print(f"Send Error to {node_id}: {ex}")
+            return False
 
-    def broadcast_command(self, cmd_id, r, g, b):
-        if self.esp:
-            cmd = pack_command(cmd_id, r, g, b)
-            # 1. Try Broadcast
-            broadcast = b'\xff' * 6
+    def send_node_cmd(self, node_id, r, g, b):
+        self.send_cmd(node_id, CMD_SET_LED, r, g, b)
+
+    def broadcast_command(self, cmd_id, a, b, c, also_broadcast=False):
+        if not self.esp:
+            return
+        # Unicast to every online node without waiting for each ACK
+        # (the radio still retries), so 10 nodes don't stall the event loop
+        for nid in self.available_nodes:
+            self.send_cmd(nid, cmd_id, a, b, c, sync=False)
+        if also_broadcast:
             try:
-                self.esp.add_peer(broadcast)
-            except:
+                self.esp.add_peer(BROADCAST)
+            except OSError:
                 pass
             try:
-                self.esp.send(broadcast, cmd)
-            except Exception as e:
-                print(f"Broadcast Error: {e}")
-            
-            # 2. Unicast to all known nodes (Fallback)
-            for nid, mac in self.node_macs.items():
-                try:
-                    self.esp.send(mac, cmd)
-                except:
-                    pass
+                self.esp.send(BROADCAST, pack_command(cmd_id, a, b, c), False)
+            except OSError as ex:
+                print(f"Broadcast Error: {ex}")
 
     def broadcast_led(self, r, g, b):
-        self.broadcast_command(1, r, g, b)
+        self.broadcast_command(CMD_SET_LED, r, g, b)
 
     def game_over(self, save=True):
         # Called by a game mode when it ends (save=True) or by /stop (save=False)
@@ -250,6 +254,8 @@ async def websocket_handler(request):
     await ws.send(json.dumps({"type": "leaderboard", "mode": "TimeAttack", "data": hub.get_leaderboard("TimeAttack")}))
     await ws.send(json.dumps({"type": "leaderboard", "mode": "TheBreach", "data": hub.get_leaderboard("TheBreach")}))
     
+    await ws.send(json.dumps({"type": "nodes", "online": hub.available_nodes}))
+
     # Send all current battery levels
     for nid, data in hub.node_battery.items():
         # Handle backward compatibility if dict was somehow old (unlikely but safe)
@@ -319,7 +325,7 @@ async def espnow_listener():
     # This is often shared, but good to ensure
     ap = network.WLAN(network.AP_IF)
     try:
-        ap.config(channel=1)
+        ap.config(channel=WIFI_CHANNEL)
     except:
         pass # Some ports don't allow setting AP channel directly if STA is active
 
@@ -339,6 +345,16 @@ async def espnow_listener():
             print("ESP-NOW listener error:")
             sys.print_exception(ex)
         await asyncio.sleep_ms(10)
+
+# --- Node heartbeat check ---
+async def node_monitor():
+    while True:
+        try:
+            hub.check_nodes()
+        except Exception as ex:
+            print("Node monitor error:")
+            sys.print_exception(ex)
+        await asyncio.sleep(1)
 
 # --- Async Game Tick ---
 async def game_loop():
@@ -366,12 +382,15 @@ def setup_wifi():
     ap.ifconfig(('192.168.4.1', '255.255.255.0', '192.168.4.1', '8.8.8.8'))
     print(f"AP: {AP_SSID} IP: 192.168.4.1")
 
+def start_tasks():
+    asyncio.create_task(espnow_listener())
+    asyncio.create_task(game_loop())
+    asyncio.create_task(node_monitor())
+
 async def main():
     setup_wifi()
     
-    # Start Tasks
-    asyncio.create_task(espnow_listener())
-    asyncio.create_task(game_loop())
+    start_tasks()
     
     # Start Server
     print("Starting Server...")
