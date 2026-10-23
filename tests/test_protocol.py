@@ -1,40 +1,38 @@
-import sys
-import os
 import struct
 import unittest
-from unittest.mock import MagicMock
 
-# Add root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import hub_env  # noqa: F401  (stubs network/espnow so common/ imports on CPython)
+from common.espnow_utils import (pack_message, unpack_message, pack_command, unpack_command,
+                                 MSG_SIZE, MSG_V1_SIZE, CMD_SIZE, MSG_TYPE_HIT, MSG_TYPE_ANNOUNCE,
+                                 CMD_SET_ID)
 
-# Mock MicroPython modules
-sys.modules['network'] = MagicMock()
-sys.modules['espnow'] = MagicMock()
-
-from common.espnow_utils import pack_message, unpack_message, MSG_TYPE_HIT, MSG_TYPE_ANNOUNCE
 
 class TestProtocol(unittest.TestCase):
-    def test_pack_unpack_hit(self):
-        # ID=1, V=3.3, Hit=True, Type=Default(Hit)
-        msg = pack_message(1, 3.3, True)
-        unpacked = unpack_message(msg)
-        
-        self.assertIsNotNone(unpacked)
-        self.assertEqual(unpacked[0], 1)
-        self.assertAlmostEqual(unpacked[1], 3.3, places=2)
-        self.assertEqual(unpacked[2], 1)
-        self.assertEqual(unpacked[3], MSG_TYPE_HIT)
+    def test_sizes_match_what_the_boards_use(self):
+        # Measured on the ESP32 hub and ESP8266 node: v1 = 21, command = 7
+        self.assertEqual((MSG_SIZE, MSG_V1_SIZE, CMD_SIZE), (12, 21, 7))
 
-    def test_pack_unpack_announce(self):
-        # ID=2, V=4.0, Hit=False, Type=Announce
-        msg = pack_message(2, 4.0, False, msg_type=MSG_TYPE_ANNOUNCE)
-        unpacked = unpack_message(msg)
-        
-        self.assertIsNotNone(unpacked)
-        self.assertEqual(unpacked[0], 2)
-        self.assertAlmostEqual(unpacked[1], 4.0, places=2)
-        self.assertEqual(unpacked[2], 0)
-        self.assertEqual(unpacked[3], MSG_TYPE_ANNOUNCE)
+    def test_v2_hit_round_trip(self):
+        msg = pack_message(4, 1234, 3.75, 62, MSG_TYPE_HIT, hit=True, charging=True)
+        ver, typ, nid, seq, batt, pct, hit, chg = unpack_message(msg)
+        self.assertEqual((ver, typ, nid, seq, pct, hit, chg), (2, MSG_TYPE_HIT, 4, 1234, 62, True, True))
+        self.assertAlmostEqual(batt, 3.75, places=2)
+
+    def test_seq_wraps_at_16_bits(self):
+        self.assertEqual(unpack_message(pack_message(0, 65536 + 5, 4.0, 90, MSG_TYPE_ANNOUNCE))[3], 5)
+
+    def test_v1_packet_from_old_node(self):
+        v1 = struct.pack('ifiBiB', 2, 4.1, 95, 1, MSG_TYPE_HIT, 0)
+        self.assertEqual(unpack_message(v1)[:4], (1, MSG_TYPE_HIT, 2, None))
+
+    def test_garbage_is_rejected(self):
+        for data in (b'', b'x' * 7, b'\x09' + b'\x00' * 11, b'x' * 30):
+            self.assertIsNone(unpack_message(data))
+
+    def test_command_round_trip_and_length_check(self):
+        self.assertEqual(unpack_command(pack_command(CMD_SET_ID, 3, 0, 0)), (CMD_SET_ID, 3, 0, 0))
+        self.assertIsNone(unpack_command(pack_message(1, 1, 4.0, 90, MSG_TYPE_ANNOUNCE)))
+
 
 if __name__ == '__main__':
     unittest.main()

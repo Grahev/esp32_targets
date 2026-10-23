@@ -125,6 +125,14 @@ timeout 30 mpremote connect $NODE run test_script.py
 # Reset the board and watch its output for 20 seconds
 timeout 20 mpremote connect $HUB reset + repl
 
+# PC tests: protocol, storage, hub (stubbed MicroPython), both game modes with N simulated nodes
+python3 -m unittest discover -s tests
+
+# Hardware test harness: drives the real hub code (see the SCENARIO list in the file).
+# Keep the script small: generate a copy with only the scenario you need.
+timeout 90 mpremote connect $HUB run tools/hub_harness.py
+timeout 60 mpremote connect $NODE run tools/node_fake_hit.py   # simulated sensor hits
+
 # Download everything from a board (backup)
 mpremote connect $HUB cp -r : ./backup_hub/
 ```

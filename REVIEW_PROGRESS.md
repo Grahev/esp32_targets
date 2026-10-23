@@ -29,7 +29,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] #13 Breach bonus compounding
 - [x] #14 websocket send timeout / drop dead clients
 - [x] #15 start/stop validation + UI feedback
-- [ ] #16 test suite
+- [x] #16 test suite
 - [ ] #17 top-level crash recovery (WDT -> needs discussion)
 
 ## Phase 4 — Multi-node readiness
