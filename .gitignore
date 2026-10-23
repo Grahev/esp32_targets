@@ -2,3 +2,4 @@ backup_hub/
 backup_node/
 __pycache__/
 *.pyc
+backup_hub_*/

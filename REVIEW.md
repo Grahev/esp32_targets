@@ -22,7 +22,7 @@
 | 14 | Stuck WebSocket clients | Fixed | PC test; hardware: closed client dropped |
 | 15 | Silent start/stop failures | Fixed | PC tests; hardware HTTP: 400 with reason, 409 with no nodes |
 | 16 | Stale tests | Fixed | `python3 -m unittest discover -s tests`: 39 tests pass |
-| 36 | Low system heap (~37 KB) for WiFi | **Needs discussion** | Measured on hardware; see below |
+| 36 | Low system heap (~37 KB) for WiFi | **Needs discussion** | Root cause measured on cold boots; options below |
 
 **Found and fixed during testing:**
 - A node dying while lit left the player with nothing to shoot for up to 15 s. Lit targets are now re-sent every 2 s, and a missing ACK drops the node within about 2 s (verified on hardware).
@@ -171,12 +171,15 @@ Line numbers refer to the code as it was at commit `5d2ba5a` (before any fixes).
 - **Why:** Over a long session, or with more than 19 targets, new nodes register but can't receive commands.
 - **Fix:** Remove the peer when a node goes offline, and log a clear error when the table is full.
 
-### #36 — Only ~37 KB of system heap is left for Wi-Fi after boot (found during fixing)
-`hub/main.py` (boot), MicroPython ESP32 heap behaviour
-- **What:** On ESP32, MicroPython grows its own heap out of the ESP-IDF heap whenever one allocation doesn't fit in the existing heap, and it never gives that memory back. During boot, one large allocation inside the hub's main module grows the Python heap by about 33 KB, which costs about 59 KB of IDF heap. Measured after boot: `idf_free≈37 KB` with no phones connected, while about 90 KB of Python heap sits unused. A test that reproduces the same growth then fails `wlan.config()` with `OSError: WiFi Out of Memory`.
-- **Why:** Wi-Fi clients, TCP sockets and ESP-NOW buffers all allocate from the IDF heap. Several phones connected at once (each loading the 29 KB page) could hit allocation failures in the middle of a game. This hasn't been seen in production yet, but the margin is thin.
-- **Measured, but not the fix on its own:** precompiling every hub module to `.mpy` (mpy-cross 1.27.0.post2) removes compile overhead, yet the growth still happens, because the trigger is a single large allocation, not compilation.
-- **Proposed fix (needs discussion):** find which boot-time allocation forces the growth (method: import the hub's modules step by step under `mpremote run` and print `gc.mem_free()+gc.mem_alloc()` and `esp32.idf_heap_info(esp32.HEAP_DATA)` after each step), and avoid it: for example, call `gc.collect()` between imports and avoid large one-off buffers at boot. Deploying `.mpy` files cuts RAM use in general, but it needs a build step and deleting the `.py` copies on the hub, which needs your OK. The hub now logs `MEM py_free=… idf_free=…` every 60 s, so the margin is visible during real games.
+### #36 — Only ~37 KB of system heap is left for Wi-Fi after boot (investigated 2026-10-23)
+`hub/main.py` and `hub/lib/microdot*.py`, MicroPython ESP32 heap behaviour
+- **What (measured on cold boots with `micropython.mem_info()`):** the hub's Python heap starts at **56 KB**. After `main.py` loads, **52.6 KB** of it is live: Microdot ≈ 23 KB, `game_engine` ≈ 11 KB, `main.py`'s own code ≈ 11 KB, the rest ≈ 8 KB. The next allocation doesn't fit, so MicroPython doubles the heap to 112 KB and takes 56 KB from the IDF heap. That leaves Wi-Fi, sockets and ESP-NOW about 37 KB (Wi-Fi itself uses ≈ 46 KB of the 143 KB available at boot).
+- **Not the cause (tested):** compiling from source, import order, ESP-NOW init order, or ESP-NOW and web traffic as such. Precompiling every module to `.mpy` did **not** raise `idf_free`, because loaded code still lives in RAM.
+- **Why it matters:** the margin for phones is thin. If Python usage ever passes 112 KB, the next growth step takes the last ~38 KB of IDF heap and Wi-Fi fails. Today the hub uses ~55–60 KB of its 112 KB, so it's far from that point.
+- **Options (your call):**
+  1. **Keep the Python heap inside its first 56 KB:** replace Microdot (a general framework, ≈ 23 KB of RAM, of which we use 5 routes + a WebSocket) with a small purpose-built HTTP/WebSocket server (≈ 5 KB), and deploy hub modules as `.mpy` so nothing is compiled at boot. Expected `idf_free` ≈ 90 KB while the heap stays under 56 KB. This is an M-sized rewrite of the web layer, and the dashboard needs a check from a real phone.
+  2. **Keep the design and add guard rails:** cap simultaneous WebSocket clients (e.g. 4) and keep watching the `MEM` log line during real games. No memory recovered.
+- The hub logs `MEM py_free=… idf_free=…` every 60 s, so the margin is visible during real games.
 
 ## Low (not fixed in this pass, listed for you)
 
