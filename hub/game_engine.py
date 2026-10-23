@@ -69,8 +69,9 @@ class TimeAttackPlus(GameMode):
         # Tracking
         self.active_targets = {} # {node_id: activation_time_ms}
         self.spawn_history = {}  # {node_id: count} for weighting
-        self.respawn_queue = []  # List of (wake_time, node_id)
-        
+        self.last_hit_node = None
+        self.next_spawn_time = 0  # no new target before this (spawn delay after a hit)
+
         self.intensity_stage = 0
         self.last_spawn_time = 0
         
@@ -89,6 +90,7 @@ class TimeAttackPlus(GameMode):
         self.reaction_times = []
         self.spawn_history = {nid: 0 for nid in self.engine.available_nodes}
         self.active_targets = {}
+        self.last_hit_node = None
         
         self.next_setup_action = time.ticks_ms()
         self.engine.broadcast_ws({"type": "score", "value": 0})
@@ -101,7 +103,6 @@ class TimeAttackPlus(GameMode):
     def on_node_lost(self, node_id):
         # A dead target can't be hit; forget it so the scheduler lights another
         self.active_targets.pop(node_id, None)
-        self.respawn_queue = [item for item in self.respawn_queue if item[1] != node_id]
         self.spawn_history.pop(node_id, None)
 
     def tick(self):
@@ -144,13 +145,7 @@ class TimeAttackPlus(GameMode):
                 if time.ticks_diff(now, self.last_hit_time) > 4000:
                     self.combo = 0
                     print("Combo Expired")
-            
-            # Respawn Logic
-            for item in self.respawn_queue[:]:
-                wake_time, node_id = item
-                if time.ticks_diff(now, wake_time) >= 0:
-                    self.activate_node(node_id)
-                    self.respawn_queue.remove(item)
+
 
     def handle_setup(self, now):
         # 3x Yellow Pulse, 1x Green Blink
@@ -179,6 +174,7 @@ class TimeAttackPlus(GameMode):
         self.game_end_time = time.ticks_add(self.game_start_time, self.duration_ms)
         self.freeze_end_time = 0
         self.global_mask_end_time = 0
+        self.next_spawn_time = self.game_start_time
 
         self.engine.broadcast_ws({"type": "status", "msg": "GO!"})
         
@@ -206,26 +202,21 @@ class TimeAttackPlus(GameMode):
         
         current_active = len(self.active_targets)
         
-        # 2. Spawn needed?
+        # 2. Spawn needed? Not until the spawn delay after the last hit
         needed = min_active - current_active
-        if needed > 0:
+        if needed > 0 and time.ticks_diff(now, self.next_spawn_time) >= 0:
             for _ in range(needed):
                 self.spawn_weighted_node(now)
 
     def spawn_weighted_node(self, now):
-        # Allow checking against last_hit_node if exists
-        last_node = getattr(self, "last_hit_node", None)
-        
-        available = [n for n in self.engine.available_nodes 
-                    if n not in self.active_targets and n != last_node]
-        
-        # If filtering last_node made list empty (e.g. 2 nodes total, 1 active, 1 just hit),
-        # we might have to allow repeat or just wait. 
-        # Requirement: "No-Repeat Rule: The next random spawn cannot be the node that was just hit."
-        # If we only have 2 nodes, Node A is active, Node B just hit. 
-        # A is active. B cannot be spawned. So no spawn. 
-        # Wait for A to be hit. Then A becomes last_hit, B becomes valid. Correct.
-        
+        free = [n for n in self.engine.available_nodes if n not in self.active_targets]
+        # No-Repeat Rule: the next spawn can't be the node that was just hit.
+        # With 2 nodes (A lit, B just hit) nothing spawns until A is hit.
+        available = [n for n in free if n != self.last_hit_node]
+        if not available and not self.active_targets:
+            # Only one node in play: it has to come back, after the spawn delay
+            available = free
+
         if not available: return
         
         # Calculate weights: Higher weight if lower spawn_history
@@ -320,28 +311,13 @@ class TimeAttackPlus(GameMode):
             self.engine.broadcast_ws({"type": "score", "value": self.score})
             self.engine.broadcast_ws({"type": "hit", "node_id": node_id, "time": now})
             
-            # Schedule Respawn
-            # Stage 0: 1.2s, Stage 1: 0.8s, Stage 2: 0.5s
-            stage_delays = {0: 1.2, 1: 0.8, 2: 0.5, 3: 0.5, 4: 0.5, 5: 0.5}
-            base_delay = stage_delays.get(self.intensity_stage, 1.2)
-            
-            delay_max_ms = int(base_delay * 1000)
-            # Randomize slightly? "Spawn Delay: 1.2s". Implies fixed or average. 
-            # Existing code had random range. Let's keep it tight.
-            delay = delay_max_ms
-            
-            wake_time = time.ticks_add(now, delay)
-            
-            # NO REPEAT Rule: Implemented in spawn_weighted_node (it chooses form available, we modify there)
-            # Actually, to prevent "immediate" no-repeat, we just need to make sure the respawn queue 
-            # doesn't just pick the same one if multiple are free? 
-            # The logic "No-Repeat Rule: The next random spawn cannot be the node that was just hit."
-            # is best handled in `spawn_weighted_node` by filtering out `last_hit_node` if needed.
-            # But since we just popped `node_id` from `active_targets`, it IS available.
-            # We will store `self.last_hit_node = node_id` and check in weighted spawn.
+            # Spawn Delay before the next target (PRD 5.2)
+            # Stage 0: 1.2s, Stage 1: 0.8s, Stage 2+: 0.5s
+            stage_delays = {0: 1.2, 1: 0.8}
+            delay = int(stage_delays.get(self.intensity_stage, 0.5) * 1000)
+            self.next_spawn_time = time.ticks_add(now, delay)
+            # spawn_weighted_node won't pick this node next (No-Repeat Rule)
             self.last_hit_node = node_id
-
-            self.respawn_queue.append((wake_time, node_id)) # This puts it back in rotation
             
         else:
             # --- Inactive Hit (Penalty) ---
@@ -354,14 +330,9 @@ class TimeAttackPlus(GameMode):
                 self.combo = 0 # Reset combo
                 
                 # Freeze Logic
+                # "Timer continues, but no targets spawn": tick() skips the
+                # scheduler until the freeze ends
                 self.freeze_end_time = time.ticks_add(now, 1000)
-                self.respawn_queue = [] # specific logic: "no targets spawn". 
-                # Should we clear pending spawns? "Timer continues, but no targets spawn".
-                # If we clear queue, nodes won't respawn. We should probably just DELAY them 
-                # or prevent `scheduler_tick` from adding new ones.
-                # Simplest: Input mask is already implied by freeze state checking in tick?
-                # Actually tick check just handles LED.
-                # We need to broadcast Orange NOW.
                 self.engine.broadcast_led(255, 140, 0) # Orange
                 
                 print(f"Penalty! Score: {self.score} FREEZE!")
@@ -372,9 +343,8 @@ class TimeAttackPlus(GameMode):
         self.state = "FINISHED"
         
         # 10s Blue cooldown
-        self.engine.broadcast_led(0, 0, 255) 
-        time.sleep(0.1) # Small blocking ok? Prefer async task for fade out
-        # Keeping it simple: Blue ON, Hub handles cleanup
+        self.engine.broadcast_led(0, 0, 255)
+        # Blue ON, hub handles cleanup (no sleep: this runs on the event loop)
         
         self.engine.broadcast_ws({"type": "status", "msg": "GAME OVER"})
         self.engine.game_over()
@@ -474,7 +444,7 @@ class TheBreach(GameMode):
         self.state = "FLASH_COUNTDOWN"
         # "All nodes pulse Yellow (3-second countdown)"
         self.countdown_step = 0
-        self.next_action_time = time.ticks_add(time.ticks_ms(), 1000)
+        self.next_action_time = time.ticks_add(time.ticks_ms(), 500)
         self.engine.broadcast_led(255, 255, 0) # Yellow
         self.engine.broadcast_ws({"type": "status", "msg": "WATCH..."})
 
@@ -488,13 +458,14 @@ class TheBreach(GameMode):
         if self.state == "FLASH_COUNTDOWN":
             if time.ticks_diff(now, self.next_action_time) >= 0:
                 self.countdown_step += 1
-                if self.countdown_step < 3:
-                     # Pulse effect (Off then Yellow)
-                    if self.countdown_step % 1 == 0: # Simple 1s beats
-                         self.engine.broadcast_led(0, 0, 0)
-                         time.sleep_ms(100) # Quick blink off
-                         self.engine.broadcast_led(255, 255, 0)
-                    self.next_action_time = time.ticks_add(now, 1000)
+                if self.countdown_step < 6:
+                    # 3 s countdown: yellow pulses, toggled every 500 ms
+                    # (no sleep here: tick() runs on the hub's event loop)
+                    if self.countdown_step % 2:
+                        self.engine.broadcast_led(0, 0, 0)
+                    else:
+                        self.engine.broadcast_led(255, 255, 0)
+                    self.next_action_time = time.ticks_add(now, 500)
                 else:
                     self.state = "FLASHING"
                     self.flash_idx = 0

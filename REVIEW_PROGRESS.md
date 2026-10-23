@@ -24,8 +24,8 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] #4 + #18 node heartbeat/offline tracking, peer cleanup
 - [x] #5 + #7 + #6 protocol v2: unicast hits w/ retry, seq dedupe, MAC-based IDs (hub+node)
 - [x] #8 #9 #10 node: AP off, throttled ADC/LED, guarded loop
-- [ ] #11 remove blocking sleeps
-- [ ] #12 Time Attack+ spawn delay / no-repeat
+- [x] #11 remove blocking sleeps
+- [x] #12 Time Attack+ spawn delay / no-repeat
 - [ ] #13 Breach bonus compounding
 - [ ] #14 websocket send timeout / drop dead clients
 - [ ] #15 start/stop validation + UI feedback
