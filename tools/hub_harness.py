@@ -44,6 +44,16 @@ async def scenario_hits():
     print('H> stop ->', await main.stop_game(Req({})))
 
 
+async def scenario_breach():
+    # The Breach with real node hits (tools/node_fake_hit.py on the node)
+    print('H> start ->', await main.start_game(Req({'mode': 'TheBreach'})))
+    for _ in range(12):
+        await asyncio.sleep(2)
+        g = hub.game
+        print('H> state', g and g.state, 'level', g and g.level, 'score', g and g.score)
+    print('H> stop ->', await main.stop_game(Req({})))
+
+
 async def scenario_crash():
     # REVIEW #3: an exception in tick() aborts the game; one in packet
     # handling is logged and the listener keeps going

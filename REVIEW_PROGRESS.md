@@ -26,7 +26,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] #8 #9 #10 node: AP off, throttled ADC/LED, guarded loop
 - [x] #11 remove blocking sleeps
 - [x] #12 Time Attack+ spawn delay / no-repeat
-- [ ] #13 Breach bonus compounding
+- [x] #13 Breach bonus compounding
 - [ ] #14 websocket send timeout / drop dead clients
 - [ ] #15 start/stop validation + UI feedback
 - [ ] #16 test suite

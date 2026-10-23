@@ -540,6 +540,7 @@ class TheBreach(GameMode):
 
         elif self.state == "FAILED":
              if time.ticks_diff(now, self.next_action_time) >= 0:
+                 self.state = "FINISHED"  # end exactly once
                  self.engine.game_over()
 
     def start_play_phase(self, now):
@@ -622,7 +623,7 @@ class TheBreach(GameMode):
         # Turn off last node (it was green)
         # Actually, let's just Flash Green All?
         # "Completion Bonus: +100 pts per level"
-        self.score += 100
+        level_points = 100
         
         # Time Bonus
         # "Total Score = (Level * 100) + (Time Bonus)"
@@ -638,7 +639,7 @@ class TheBreach(GameMode):
         if taken_ms < par_ms:
             diff_ms = par_ms - taken_ms
             bonus_units = int(diff_ms / 100) # 0.1s
-            self.score += (bonus_units * 5)
+            level_points += (bonus_units * 5)
         
         # Precision Bonus: 1.2x if no strays. 
         # We don't track strays easily unless "Inactive Node Hit" counts as stray.
@@ -650,7 +651,9 @@ class TheBreach(GameMode):
         # So... Precision Bonus is always applied if you win? 
         # Or maybe "Stray BB hitting an inactive node" implies sensors triggering without a "Hit" logic?
         # Let's assume passed level = precision bonus for now.
-        self.score = int(self.score * 1.2)
+        # Applied to this level's points only; multiplying the running total
+        # compounded the bonus across levels
+        self.score += int(level_points * 1.2)
         
         self.engine.broadcast_ws({"type": "score", "value": self.score})
         self.engine.broadcast_ws({"type": "status", "msg": "CLEARED"})
