@@ -36,7 +36,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] Node identity from MAC, no code edits to add a node (done with #6)
 - [x] Hub tracks join / heartbeat / offline (done with #4)
 - [x] tools/fake_nodes.py written and run, results in docs/MULTI_NODE_TEST_RESULTS.md
-- [ ] docs/ADDING_A_NODE.md
+- [x] docs/ADDING_A_NODE.md
 
 ## Phase 5 — Features
 - [ ] FEATURES.md
