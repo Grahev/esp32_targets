@@ -19,7 +19,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 
 ## Phase 3 — Fix (Critical → Medium)
 - [x] #1 atomic score save + corrupt-file guard
-- [ ] #2 /stop returns nodes to standby/idle
+- [x] #2 /stop returns nodes to standby/idle
 - [ ] #3 guarded listener/game loop, crash -> reset
 - [ ] #4 + #18 node heartbeat/offline tracking, peer cleanup
 - [ ] #5 + #7 + #6 protocol v2: unicast hits w/ retry, seq dedupe, MAC-based IDs (hub+node)

@@ -156,24 +156,22 @@ class HUB_SYSTEM:
     def broadcast_led(self, r, g, b):
         self.broadcast_command(1, r, g, b)
 
-    def game_over(self):
+    def game_over(self, save=True):
+        # Called by a game mode when it ends (save=True) or by /stop (save=False)
         print("GAME OVER")
         if self.game:
-            if self.game.name == "Time Attack+":
-                self.save_score(self.game, "TimeAttack")
-            elif self.game.name == "The Breach":
-                self.save_score(self.game, "TheBreach")
-            
-            # Capture mode before clearing
             mode_name = "TimeAttack" if self.game.name == "Time Attack+" else "TheBreach"
+            if save:
+                self.save_score(self.game, mode_name)
             self.game = None
-            
+
             self.broadcast_ws({"type": "status", "msg": "GAME OVER"})
             # Send updated leaderboard for that mode
             self.broadcast_ws({"type": "leaderboard", "mode": mode_name, "data": self.get_leaderboard(mode_name)})
-            
+
             # Switch to Standby, then schedule Idle
             self.set_system_mode(2)
+            self.cancel_idle_timer()
             self._idle_task = asyncio.create_task(self._auto_idle())
 
     def save_score(self, game_obj, mode):
@@ -292,12 +290,8 @@ async def start_game(request):
 async def stop_game(request):
     if hub.game:
         hub.game.stop()
-        # game.stop() calls game_over() which handles mode switch?
-        # Typically separate. TimeAttack calls hub.game_over().
-        # Manual stop might not trigger it if game logic is simple?
-        # Assuming manual stop also clears game:
-        hub.game = None
-        hub.game_over() # Trigger Cleanup & Standby logic
+        # Aborted games aren't scored; game_over clears hub.game and sends Standby
+        hub.game_over(save=False)
         hub.broadcast_ws({"type": "status", "msg": "Stopped"})
     return "Stopped"
 
