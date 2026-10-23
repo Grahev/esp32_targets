@@ -42,7 +42,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] FEATURES.md
 
 ## Finish
-- [ ] Summary at top of REVIEW.md, all committed on branch
+- [x] Summary at top of REVIEW.md, all committed on branch
 
 ## Notes
 - Every `mpremote` command stops `main.py`; reset boards afterwards (node first, then hub).

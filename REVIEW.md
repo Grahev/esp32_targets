@@ -1,8 +1,55 @@
 # Code review — ESP32 Targets
 
-_Summary: written at the end of the review pass (see top section once filled in)._
+## Summary (2026-10-23, branch `review/full-pass`, 14 commits, not merged or pushed)
 
-<!-- SUMMARY -->
+**Fixed:** all Critical, High and Medium findings except #36 (#1–#18; see the status table). Both boards run the fixed code, and their files match the repo.
+
+| # | Finding | Status | How it was verified |
+|---|---------|--------|---------------------|
+| 1 | Score file wiped by a power cut | Fixed | PC tests (truncated/empty file); save on the hub, real score files untouched |
+| 2 | Stop left nodes in Active mode | Fixed | Hardware: node got mode 1 → 2 → 0 |
+| 3 | Listener or game loop died silently | Fixed | Hardware: injected exceptions; game aborted cleanly, listener kept running |
+| 4, 18 | Offline nodes never removed, peer table | Fixed | Hardware: offline after 15 s, rejoin on reset; PC tests; simulator (1–16 nodes) |
+| 5 | Hits broadcast without ACK | Fixed | Hardware: 5 of 5 hits by unicast, 0 failures |
+| 6 | Hand-edited node IDs | Fixed | Hardware: registered from MAC, `nodes.json` written; PC tests (10 nodes, duplicate claims, reboot) |
+| 7 | No sequence number or version | Fixed | PC tests (v2 round trip, v1 still accepted, duplicate dropped) |
+| 8 | Open AP on every node | Fixed | Hardware: AP off, packets now come from the STA MAC |
+| 9 | ADC read every 10 ms | Fixed | Code: battery cached for 2 s, LED written only on change |
+| 10, 17 | No crash recovery | Fixed (software) | Node and hub reset on fatal errors; hardware watchdog → discussion |
+| 11 | Blocking sleeps on the event loop | Fixed | Simulator fails any `sleep` call in game code |
+| 12 | Time Attack+ re-lit the node just hit | Fixed | PC tests (no-repeat, spawn delay, 10-node fairness); hardware game |
+| 13 | Breach bonus compounding | Fixed | PC test (levels 1 and 2 score the same); hardware level 1 = 120 |
+| 14 | Stuck WebSocket clients | Fixed | PC test; hardware: closed client dropped |
+| 15 | Silent start/stop failures | Fixed | PC tests; hardware HTTP: 400 with reason, 409 with no nodes |
+| 16 | Stale tests | Fixed | `python3 -m unittest discover -s tests`: 39 tests pass |
+| 36 | Low system heap (~37 KB) for WiFi | **Needs discussion** | Measured on hardware; see below |
+
+**Found and fixed during testing:**
+- A node dying while lit left the player with nothing to shoot for up to 15 s. Lit targets are now re-sent every 2 s, and a missing ACK drops the node within about 2 s (verified on hardware).
+- The new node firmware first crashed at boot: `add_peer(broadcast)` raises `-3` on ESP8266, and that code ran outside the crash handler. Fixed, and radio setup now runs inside the guarded path.
+
+**Low findings also fixed as part of the above:** #22 (in part: dead legacy branch, unused imports, duplicate attribute), #26, #27, #32.
+
+**Testing:**
+- **Real hardware** (1 hub + 1 node): `tools/hub_harness.py` runs the real hub code with injected scenarios, and `tools/node_fake_hit.py` sends hits through the real node code and radio.
+- **N nodes:** `tools/fake_nodes.py` runs the real hub code against 1–16 simulated nodes with packet loss and nodes dying. Results are in `docs/MULTI_NODE_TEST_RESULTS.md`.
+- **PC suite:** 39 tests.
+
+**Left for later:**
+- #36 (below).
+- Low items #19–#21, #23–#25, #28–#31, #33–#35.
+- Docs that are out of date (#29: README, SETUP_GUIDE, USER_MANUAL, PRD).
+
+**What I need from you:**
+1. **OK to delete test leftovers on the hub:**
+   - `/_selftest.json`.
+   - `/app/`: compiled test copies, unused.
+   - `/microdot.mpy`, `/microdot_asyncio.mpy`, `/microdot_websocket.mpy`. These hold the same code as `lib/`, and the hub currently loads them first because `/` comes before `/lib` in `sys.path`.
+2. **Decide on #36:** investigate the boot-time allocation, and/or move to precompiled `.mpy` deploys (needs a build step and deleting `.py` copies on the hub).
+3. **Decide on a hardware watchdog:** an ESP32 `machine.WDT` can't be stopped once started, so it would reboot the hub in the middle of `mpremote` uploads unless uploads happen within its timeout.
+4. **`scores_time_attack.json`:** an orphan in the old format; delete or keep (#35).
+5. **A real game on the dashboard from a phone**, to check the UI changes: offline nodes dimmed, refusal messages. I couldn't run a browser against the hub from here.
+6. Merge `review/full-pass` when you're happy with it.
 
 ---
 
@@ -129,7 +176,7 @@ Line numbers refer to the code as it was at commit `5d2ba5a` (before any fixes).
 - **What:** On ESP32, MicroPython grows its own heap out of the ESP-IDF heap whenever one allocation doesn't fit in the existing heap, and it never gives that memory back. During boot, one large allocation inside the hub's main module grows the Python heap by about 33 KB, which costs about 59 KB of IDF heap. Measured after boot: `idf_free≈37 KB` with no phones connected, while about 90 KB of Python heap sits unused. A test that reproduces the same growth then fails `wlan.config()` with `OSError: WiFi Out of Memory`.
 - **Why:** Wi-Fi clients, TCP sockets and ESP-NOW buffers all allocate from the IDF heap. Several phones connected at once (each loading the 29 KB page) could hit allocation failures in the middle of a game. This hasn't been seen in production yet, but the margin is thin.
 - **Measured, but not the fix on its own:** precompiling every hub module to `.mpy` (mpy-cross 1.27.0.post2) removes compile overhead, yet the growth still happens, because the trigger is a single large allocation, not compilation.
-- **Proposed fix (needs discussion):** find that allocation (probe: `tools/hub_harness.py` + `log_memory()`), and/or pre-grow nothing. For example, call `gc.collect()` around imports and avoid large bytes objects at boot. Deploying `.mpy` files also needs a build step and deleting `.py` copies on the hub, which needs your OK. The hub now logs a `MEM py_free=… idf_free=…` line every 60 s, so the margin is visible during real games.
+- **Proposed fix (needs discussion):** find which boot-time allocation forces the growth (the probe scripts are described in REVIEW_PROGRESS.md), and avoid it: for example, call `gc.collect()` between imports and avoid large one-off buffers at boot. Deploying `.mpy` files cuts RAM use in general, but it needs a build step and deleting the `.py` copies on the hub, which needs your OK. The hub now logs `MEM py_free=… idf_free=…` every 60 s, so the margin is visible during real games.
 
 ## Low (not fixed in this pass, listed for you)
 
@@ -152,4 +199,6 @@ Line numbers refer to the code as it was at commit `5d2ba5a` (before any fixes).
 - **#35** `scores_time_attack.json` on the hub is an orphan in the old format. The code never reads it. Deleting it is your call.
 
 ## Needs discussion
-_(filled in during the fix phase)_
+- **#36 (hub system heap):** see the finding above and "What I need from you" in the summary.
+- **Hardware watchdog (#17):** recovery is software-only for now (the board resets on fatal exceptions). An ESP32 `machine.WDT` can't be disabled once started, so `mpremote` file transfers would have to finish within its timeout or the hub reboots in the middle of an upload.
+- **No fix was reverted.** Every attempted fix in this pass worked within 3 attempts.
