@@ -18,7 +18,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] REVIEW.md with Critical / High / Medium / Low findings (1 Critical, 5 High, 12 Medium, 17 Low)
 
 ## Phase 3 — Fix (Critical → Medium)
-- [ ] #1 atomic score save + corrupt-file guard
+- [x] #1 atomic score save + corrupt-file guard
 - [ ] #2 /stop returns nodes to standby/idle
 - [ ] #3 guarded listener/game loop, crash -> reset
 - [ ] #4 + #18 node heartbeat/offline tracking, peer cleanup
@@ -49,3 +49,4 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - `mpremote repl` needs a TTY here; read boot logs with pyserial (see tools/serial_log.py once written).
 - Board vs repo (Phase 1): code identical apart from CRLF endings; board-only = boot.py (default) + scores_*.json; repo-only = docs/, tests/, prd.md, README.md.
 - Existing tests are stale: test_time_attack.py imports a removed class, test_protocol.py uses an old pack_message signature.
+- Left on hub by a test: `_selftest.json` (13 bytes). Needs user OK to delete.

@@ -9,6 +9,7 @@ from common.espnow_utils import init_espnow, unpack_message, pack_command, MSG_T
 from microdot_asyncio import Microdot, Response, send_file
 from microdot_websocket import with_websocket
 from game_engine import GameMode, TimeAttackPlus, TheBreach
+from storage import load_json, save_json
 
 
 # --- Configuration ---
@@ -204,19 +205,13 @@ class HUB_SYSTEM:
             scores.sort(key=lambda x: x['score'], reverse=True)
             scores = scores[:20]
             
-            with open(filename, 'w') as f:
-                json.dump(scores, f)
+            save_json(filename, scores)
             print(f"Score Saved to {filename}")
         except Exception as e:
             print(f"Save Error: {e}")
 
     def get_leaderboard(self, mode="TimeAttack"):
-        filename = f'scores_{mode}.json'
-        try:
-            with open(filename, 'r') as f:
-                return json.load(f)
-        except:
-            return []
+        return load_json(f'scores_{mode}.json', [])
 
 hub = HUB_SYSTEM()
 
