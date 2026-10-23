@@ -153,6 +153,35 @@ class TestRoutes(unittest.TestCase):
         self.run_async(go())
         self.assertEqual(self.hub.get_leaderboard('TimeAttack'), [])
 
+    def test_start_rejects_bad_requests_with_reason(self):
+        async def go():
+            bad = [{'mode': 'Zombie'},
+                   {'mode': 'TimeAttack', 'duration': 'abc'},
+                   {'mode': 'TimeAttack', 'duration': '0'},
+                   {'mode': 'TimeAttack', 'difficulty': 'Insane'}]
+            for args in bad:
+                reply = await main.start_game(Req(args))
+                self.assertEqual(reply[1], 400, args)
+            self.assertIsNone(self.hub.game)
+        self.run_async(go())
+
+    def test_start_without_nodes_is_refused(self):
+        hub, _ = fresh_hub()
+        Recorder(hub)
+        reply = asyncio.run(main.start_game(Req({'mode': 'TheBreach'})))
+        self.assertEqual(reply[1], 409)
+
+    def test_start_while_running_replaces_game_cleanly(self):
+        async def go():
+            await main.start_game(Req({'mode': 'TimeAttack'}))
+            first = self.hub.game
+            self.assertEqual(await main.start_game(Req({'mode': 'TheBreach'})), "OK")
+            self.assertEqual(first.state, "FINISHED")
+            self.assertEqual(self.hub.game.name, "The Breach")
+            self.assertEqual(self.hub.sys_mode, 1)
+            self.hub.cancel_idle_timer()
+        self.run_async(go())
+
 
 class Req:
     def __init__(self, args):

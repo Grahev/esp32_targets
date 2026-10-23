@@ -491,6 +491,15 @@
                 }
             } else if (data.type === 'battery') {
                 updateBattery(data.node_id, data.voltage, data.percent, data.charging);
+            } else if (data.type === 'nodes') {
+                // Dim nodes that stopped sending heartbeats
+                document.querySelectorAll('#battery-table tbody tr').forEach(row => {
+                    const id = parseInt(row.id.replace('batt-row-', ''));
+                    if (!data.online.includes(id)) {
+                        row.style.opacity = '0.4';
+                        row.lastElementChild.innerText = 'OFFLINE';
+                    }
+                });
             }
         }
         
@@ -639,6 +648,7 @@
 
             if (row) {
                 row.innerHTML = html;
+                row.style.opacity = '1';
             } else {
                 row = document.createElement('tr');
                 row.id = `batt-row-${nodeId}`;
@@ -664,6 +674,15 @@
         }
 
         // --- Controls ---
+        // Show the hub's reply when it refuses a command (no nodes, bad settings)
+        function request(url, what) {
+            fetch(url)
+                .then(r => r.text().then(t => {
+                    if (!r.ok) log(`${what} REFUSED: ${t.toUpperCase()}`);
+                }))
+                .catch(() => log(`${what} FAILED: HUB NOT REACHABLE`));
+        }
+
         function triggerStart(modeOverride) {
             let url = `/start?mode=${modeOverride}`;
             
@@ -676,12 +695,12 @@
             // Breach has no params yet
             
             log(`INITIATING ${modeOverride.toUpperCase()}...`);
-            fetch(url);
+            request(url, 'START');
         }
 
         function triggerStop() {
             log("SENDING ABORT SIGNAL...");
-            fetch('/stop');
+            request('/stop', 'ABORT');
         }
 
         // Start

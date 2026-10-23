@@ -11,7 +11,7 @@ from common.espnow_utils import (init_espnow, unpack_message, pack_command, MSG_
                                  CMD_SET_LED, CMD_SET_MODE, CMD_SET_ID, BROADCAST, WIFI_CHANNEL)
 from microdot_asyncio import Microdot, Response, send_file
 from microdot_websocket import with_websocket
-from game_engine import GameMode, TimeAttackPlus, TheBreach
+from game_engine import TimeAttackPlus, TheBreach, DifficultyConfig
 from storage import load_json, save_json
 from node_registry import NodeRegistry, mac_key
 
@@ -296,28 +296,36 @@ async def websocket_handler(request):
 async def start_game(request):
     mode = request.args.get('mode', 'TimeAttack')
     print(f"Starting {mode}")
-    
+    if mode not in ('TimeAttack', 'TheBreach'):
+        return f"Unknown mode {mode}", 400
     if not hub.available_nodes:
-        # For testing without nodes, we might want to bypass, but strictly:
-        return "No Nodes Connected"
-    
+        return "No nodes online", 409
+
     if mode == 'TimeAttack':
-        duration = int(request.args.get('duration', 1))
-        delay = float(request.args.get('delay', 1.0))
+        try:
+            duration = int(request.args.get('duration', 1))
+            delay = float(request.args.get('delay', 1.0))
+        except ValueError:
+            return "Bad duration or delay", 400
         diff = request.args.get('difficulty', 'Normal')
+        if not 1 <= duration <= 30 or not 0.1 <= delay <= 10:
+            return "Duration must be 1-30 min, delay 0.1-10 s", 400
+        if diff not in DifficultyConfig.PENALTIES:
+            return f"Unknown difficulty {diff}", 400
         pen = (request.args.get('penalties', 'true') == 'true')
-        
-        hub.game = TimeAttackPlus(hub, duration_min=duration, difficulty=diff, penalties=pen, respawn_delay=delay) 
-    elif mode == 'TheBreach':
-        # Default start level 1
-        hub.game = TheBreach(hub, start_level=1)
-    
+        game = TimeAttackPlus(hub, duration_min=duration, difficulty=diff, penalties=pen, respawn_delay=delay)
+    else:
+        game = TheBreach(hub, start_level=1)
+
     if hub.game:
-        hub.cancel_idle_timer() # Cancel pending idle if any
-        hub.set_system_mode(1) # Active Mode
-        hub.game.start()
-        hub.broadcast_ws({"type": "status", "msg": f"Started {mode}"})
-    
+        # A new start replaces the running game: end that one cleanly first
+        hub.game.stop()
+        hub.game_over(save=False)
+    hub.game = game
+    hub.cancel_idle_timer() # Cancel pending idle if any
+    hub.set_system_mode(1) # Active Mode
+    hub.game.start()
+    hub.broadcast_ws({"type": "status", "msg": f"Started {mode}"})
     return "OK"
 
 @app.route('/stop')
@@ -327,7 +335,8 @@ async def stop_game(request):
         # Aborted games aren't scored; game_over clears hub.game and sends Standby
         hub.game_over(save=False)
         hub.broadcast_ws({"type": "status", "msg": "Stopped"})
-    return "Stopped"
+        return "Stopped"
+    return "No game running"
 
 # --- Async ESP-NOW Listener ---
 async def espnow_listener():

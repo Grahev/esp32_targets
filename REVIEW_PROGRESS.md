@@ -28,7 +28,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] #12 Time Attack+ spawn delay / no-repeat
 - [x] #13 Breach bonus compounding
 - [x] #14 websocket send timeout / drop dead clients
-- [ ] #15 start/stop validation + UI feedback
+- [x] #15 start/stop validation + UI feedback
 - [ ] #16 test suite
 - [ ] #17 top-level crash recovery (WDT -> needs discussion)
 

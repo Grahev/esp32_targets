@@ -82,12 +82,15 @@ async def scenario_web():
     r, w, data = await http('/ws', ws=True)
     print('H> ws handshake:', data.split(b'\r\n')[0])
     print('H> ws initial frames contain nodes msg:', b'"nodes"' in data, 'leaderboard:', b'leaderboard' in data)
-    for path in ('/start?mode=TimeAttack&duration=abc', '/start?mode=Nope', '/stop'):
+    for path in ('/', '/start?mode=TimeAttack&duration=abc', '/start?mode=Nope', '/stop',
+                 '/start?mode=TheBreach', '/stop'):
         _, w2, reply = await http(path)
-        print('H> GET', path, '->', reply.split(b'\r\n')[0], reply.split(b'\r\n\r\n')[-1][:60])
-        w2.close()
+        body = reply.split(b'\r\n\r\n', 1)[-1]
+        print('H> GET', path, '->', reply.split(b'\r\n')[0], len(body), 'bytes', body[:50])
+        await w2.wait_closed()
+        await asyncio.sleep_ms(300)
     print('H> clients before close', len(main.connected_clients))
-    w.close()
+    await w.wait_closed()  # close() alone does nothing in MicroPython asyncio
     await asyncio.sleep(1)
     print('H> clients after close', len(main.connected_clients))
 
