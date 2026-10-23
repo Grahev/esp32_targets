@@ -33,6 +33,7 @@ class NodeRegistry:
         self.macs = {}       # node id -> mac bytes
         self.last_seen = {}  # node id -> ticks_ms, online nodes only
         self.last_seq = {}   # mac -> (seq, ticks_ms)
+        self.unreachable = set()  # online nodes that just failed to ACK a unicast
 
     def node_id_for(self, mac, claimed=0):
         key = mac_key(mac)
@@ -65,15 +66,24 @@ class NodeRegistry:
         """Record a packet from a node. Returns True if it just came online."""
         joined = nid not in self.last_seen
         self.last_seen[nid] = now
+        self.unreachable.discard(nid)
         self.macs[nid] = mac
         return joined
 
     def expire(self, now):
         """Mark nodes silent for longer than offline_ms as offline; return their IDs."""
-        gone = [nid for nid, t in self.last_seen.items() if ticks_diff(now, t) > self.offline_ms]
+        gone = [nid for nid, t in self.last_seen.items()
+                if ticks_diff(now, t) > self.offline_ms or nid in self.unreachable]
         for nid in gone:
             del self.last_seen[nid]
+        self.unreachable.clear()
         return gone
+
+    def mark_unreachable(self, nid):
+        """A unicast got no ACK (the radio already retried): drop the node on the
+        next expire() instead of waiting for 3 missed heartbeats."""
+        if nid in self.last_seen:
+            self.unreachable.add(nid)
 
     def online(self):
         return sorted(self.last_seen)

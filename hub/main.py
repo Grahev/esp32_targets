@@ -166,7 +166,11 @@ class HUB_SYSTEM:
         try:
             ok = self.esp.send(self.node_macs[node_id], pack_command(cmd_id, a, b, c), sync)
             if sync and not ok:
+                # Dropped within 1 s by check_nodes(), so a dead node doesn't stay a
+                # lit target for the full heartbeat timeout. If it's alive after
+                # all, its next heartbeat brings it straight back.
                 print(f"Node {node_id} did not ACK cmd {cmd_id}")
+                self.registry.mark_unreachable(node_id)
             return ok
         except OSError as ex:
             print(f"Send Error to {node_id}: {ex}")

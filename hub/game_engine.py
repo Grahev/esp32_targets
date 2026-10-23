@@ -71,6 +71,7 @@ class TimeAttackPlus(GameMode):
         self.spawn_history = {}  # {node_id: count} for weighting
         self.last_hit_node = None
         self.next_spawn_time = 0  # no new target before this (spawn delay after a hit)
+        self.next_refresh_time = 0
 
         self.intensity_stage = 0
         self.last_spawn_time = 0
@@ -139,6 +140,15 @@ class TimeAttackPlus(GameMode):
                         self.engine.send_node_cmd(nid, 255, 0, 0)
 
             self.scheduler_tick(now)
+
+            # Re-send red to lit targets every 2 s. The unicast is ACKed, so a
+            # target that died while lit is noticed (and replaced) within ~3 s
+            # instead of after the 15 s heartbeat timeout; a lost LED command
+            # is repaired too.
+            if time.ticks_diff(now, self.next_refresh_time) >= 0:
+                self.next_refresh_time = time.ticks_add(now, 2000)
+                for nid in list(self.active_targets):
+                    self.engine.send_node_cmd(nid, 255, 0, 0)
             
             # Combo Expiry (4s timeout)
             if self.combo > 0:
@@ -242,9 +252,9 @@ class TimeAttackPlus(GameMode):
                 chosen = available[i]
                 break
         
-        self.activate_node(chosen)
         self.spawn_history[chosen] += 1
         self.last_spawn_time = now
+        self.activate_node(chosen)
 
     def activate_node(self, node_id):
         self.active_targets[node_id] = time.ticks_ms()

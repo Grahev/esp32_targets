@@ -30,12 +30,12 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] #14 websocket send timeout / drop dead clients
 - [x] #15 start/stop validation + UI feedback
 - [x] #16 test suite
-- [ ] #17 top-level crash recovery (WDT -> needs discussion)
+- [x] #17 top-level crash recovery (done in #3 hub, #10 node; HW WDT -> needs discussion)
 
 ## Phase 4 — Multi-node readiness
 - [x] Node identity from MAC, no code edits to add a node (done with #6)
 - [x] Hub tracks join / heartbeat / offline (done with #4)
-- [ ] tools/fake_nodes.py written and run, results recorded
+- [x] tools/fake_nodes.py written and run, results in docs/MULTI_NODE_TEST_RESULTS.md
 - [ ] docs/ADDING_A_NODE.md
 
 ## Phase 5 — Features

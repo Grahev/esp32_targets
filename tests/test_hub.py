@@ -133,6 +133,36 @@ class TestOffline(unittest.TestCase):
         self.assertEqual(len(dests), 4)
 
 
+class TestLitTargetDies(unittest.TestCase):
+    def test_dead_lit_target_is_replaced_within_3_s(self):
+        hub, clock = fresh_hub()
+        Recorder(hub)
+        for n in (1, 2, 3, 4):
+            hub.handle_packet(mac(n), announce(claimed=n))
+        dead = set()
+        real_send = hub.esp.send
+        hub.esp.send = lambda m, msg, sync=True: real_send(m, msg, sync) and m not in dead
+
+        async def go():
+            await main.start_game(Req({'mode': 'TimeAttack'}))
+            game = hub.game
+            while game.state != "PLAYING":
+                clock.now += 100
+                game.tick()
+            victim = next(iter(game.active_targets))
+            dead.add(mac(victim))
+            for _ in range(30):  # 3 s: game ticks every 100 ms, node check every 1 s
+                clock.now += 100
+                game.tick()
+                if clock.now % 1000 == 0:
+                    hub.check_nodes()
+            self.assertNotIn(victim, hub.available_nodes)
+            self.assertTrue(game.active_targets)
+            self.assertNotIn(victim, game.active_targets)
+            hub.cancel_idle_timer()
+        asyncio.run(go())
+
+
 class TestRoutes(unittest.TestCase):
     def setUp(self):
         self.hub, self.clock = fresh_hub()
