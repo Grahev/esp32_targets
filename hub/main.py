@@ -1,3 +1,4 @@
+import gc
 import sys
 import time
 import machine
@@ -21,6 +22,29 @@ AP_SSID = "Airsoft-Master"
 # --- Globals ---
 app = Microdot()
 connected_clients = []
+WS_SEND_TIMEOUT = 2  # s; a phone that went to sleep never ACKs, so don't wait forever
+
+
+def drop_client(ws, close=True):
+    if ws in connected_clients:
+        connected_clients.remove(ws)
+        print(f"WS client dropped ({len(connected_clients)} left)")
+        if close:
+            asyncio.create_task(close_client(ws))
+
+
+async def close_client(ws):
+    try:
+        await ws.writer.aclose()  # also ends that client's receive loop
+    except Exception:
+        pass
+
+
+async def ws_send(ws, msg_json):
+    try:
+        await asyncio.wait_for(ws.send(msg_json), WS_SEND_TIMEOUT)
+    except Exception:
+        drop_client(ws)
 
 # --- System Class ---
 class HUB_SYSTEM:
@@ -55,11 +79,8 @@ class HUB_SYSTEM:
 
     def broadcast_ws(self, msg_dict):
         msg_json = json.dumps(msg_dict)
-        for p in connected_clients:
-            try:
-                asyncio.create_task(p.send(msg_json))
-            except:
-                pass
+        for ws in connected_clients:
+            asyncio.create_task(ws_send(ws, msg_json))
     
     def update_battery(self, node_id, voltage, percent=0, charging=False):
         self.node_battery[node_id] = {'voltage': voltage, 'percent': percent, 'charging': charging}
@@ -249,33 +270,26 @@ async def websocket_handler(request):
     await ws.handshake()
     print("WS Connected")
     connected_clients.append(ws)
-    # Send initial leaderboards (Both?)
-    # Frontend can filter, or request. Let's send TimeAttack as default.
-    await ws.send(json.dumps({"type": "leaderboard", "mode": "TimeAttack", "data": hub.get_leaderboard("TimeAttack")}))
-    await ws.send(json.dumps({"type": "leaderboard", "mode": "TheBreach", "data": hub.get_leaderboard("TheBreach")}))
-    
-    await ws.send(json.dumps({"type": "nodes", "online": hub.available_nodes}))
-
-    # Send all current battery levels
-    for nid, data in hub.node_battery.items():
-        # Handle backward compatibility if dict was somehow old (unlikely but safe)
-        if isinstance(data, dict):
+    try:
+        # Initial state: both leaderboards, online nodes, battery levels
+        await ws.send(json.dumps({"type": "leaderboard", "mode": "TimeAttack", "data": hub.get_leaderboard("TimeAttack")}))
+        await ws.send(json.dumps({"type": "leaderboard", "mode": "TheBreach", "data": hub.get_leaderboard("TheBreach")}))
+        await ws.send(json.dumps({"type": "nodes", "online": hub.available_nodes}))
+        for nid, data in hub.node_battery.items():
             await ws.send(json.dumps({
-                "type": "battery", 
-                "node_id": nid, 
+                "type": "battery",
+                "node_id": nid,
                 "voltage": round(data['voltage'], 2),
                 "percent": data.get('percent', 0),
                 "charging": data.get('charging', False)
             }))
 
-    try:
         while True:
             msg = await ws.receive()
     except Exception as e:
         print(f"WS Error: {e}")
     finally:
-        if ws in connected_clients:
-            connected_clients.remove(ws)
+        drop_client(ws, close=False)  # microdot closes the socket after we return
 
 
 @app.route('/start')
@@ -346,14 +360,29 @@ async def espnow_listener():
             sys.print_exception(ex)
         await asyncio.sleep_ms(10)
 
+def log_memory():
+    # Python heap + the IDF heap that WiFi/ESP-NOW/sockets allocate from.
+    # The Python heap grows into the IDF heap and never gives memory back.
+    gc.collect()
+    try:
+        import esp32
+        idf = sum(h[1] for h in esp32.idf_heap_info(esp32.HEAP_DATA))
+    except (ImportError, AttributeError):
+        idf = -1
+    print(f"MEM py_free={gc.mem_free()} idf_free={idf} clients={len(connected_clients)} nodes={len(hub.available_nodes)}")
+
 # --- Node heartbeat check ---
 async def node_monitor():
+    seconds = 0
     while True:
         try:
             hub.check_nodes()
+            if seconds % 60 == 5:
+                log_memory()
         except Exception as ex:
             print("Node monitor error:")
             sys.print_exception(ex)
+        seconds += 1
         await asyncio.sleep(1)
 
 # --- Async Game Tick ---

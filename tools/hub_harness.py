@@ -54,6 +54,44 @@ async def scenario_breach():
     print('H> stop ->', await main.stop_game(Req({})))
 
 
+async def http(path, ws=False):
+    """Request our own web server over the AP's IP; return the raw reply."""
+    r, w = await asyncio.open_connection('192.168.4.1', 80)
+    hdr = 'GET %s HTTP/1.1\r\nHost: x\r\n' % path
+    if ws:
+        hdr += ('Connection: Upgrade\r\nUpgrade: websocket\r\n'
+                'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n')
+    w.write((hdr + '\r\n').encode())
+    await w.drain()
+    data = b''
+    try:
+        while len(data) < 3000:
+            chunk = await asyncio.wait_for(r.read(512), 2)
+            if not chunk:
+                break
+            data += chunk
+    except asyncio.TimeoutError:
+        pass
+    return r, w, data
+
+
+async def scenario_web():
+    # Real HTTP server + a WebSocket client on the hub itself
+    asyncio.create_task(main.app.start_server(port=80))
+    await asyncio.sleep(1)
+    r, w, data = await http('/ws', ws=True)
+    print('H> ws handshake:', data.split(b'\r\n')[0])
+    print('H> ws initial frames contain nodes msg:', b'"nodes"' in data, 'leaderboard:', b'leaderboard' in data)
+    for path in ('/start?mode=TimeAttack&duration=abc', '/start?mode=Nope', '/stop'):
+        _, w2, reply = await http(path)
+        print('H> GET', path, '->', reply.split(b'\r\n')[0], reply.split(b'\r\n\r\n')[-1][:60])
+        w2.close()
+    print('H> clients before close', len(main.connected_clients))
+    w.close()
+    await asyncio.sleep(1)
+    print('H> clients after close', len(main.connected_clients))
+
+
 async def scenario_crash():
     # REVIEW #3: an exception in tick() aborts the game; one in packet
     # handling is logged and the listener keeps going
@@ -88,7 +126,12 @@ async def scenario_idle():
 
 
 async def run():
-    main.setup_wifi()
+    import network
+    ap = network.WLAN(network.AP_IF)
+    # main.py already set up the AP at boot; reconfiguring a running AP can
+    # fail with "WiFi Out of Memory", so only do it if needed
+    if not (ap.active() and ap.config('essid') == main.AP_SSID):
+        main.setup_wifi()
     main.start_tasks()
     await wait_nodes()
     await globals()['scenario_' + SCENARIO]()

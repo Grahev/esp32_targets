@@ -27,7 +27,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] #11 remove blocking sleeps
 - [x] #12 Time Attack+ spawn delay / no-repeat
 - [x] #13 Breach bonus compounding
-- [ ] #14 websocket send timeout / drop dead clients
+- [x] #14 websocket send timeout / drop dead clients
 - [ ] #15 start/stop validation + UI feedback
 - [ ] #16 test suite
 - [ ] #17 top-level crash recovery (WDT -> needs discussion)
@@ -50,3 +50,5 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - Board vs repo (Phase 1): code identical apart from CRLF endings; board-only = boot.py (default) + scores_*.json; repo-only = docs/, tests/, prd.md, README.md.
 - Existing tests are stale: test_time_attack.py imports a removed class, test_protocol.py uses an old pack_message signature.
 - Left on hub by a test: `_selftest.json` (13 bytes). Needs user OK to delete.
+- Hub memory (#36): idf_free ~37 KB after boot. Test files left on hub by the investigation: `/microdot*.mpy` (3 files, same code as lib/, currently loaded first because `/` precedes `/lib` in sys.path) and `/app/` (compiled test copies). Need user OK to delete.
+- Harness scripts must stay small (big scripts grow the heap and starve WiFi): use a trimmed copy with only the needed scenario.

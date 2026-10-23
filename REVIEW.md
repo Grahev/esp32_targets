@@ -124,6 +124,13 @@ Line numbers refer to the code as it was at commit `5d2ba5a` (before any fixes).
 - **Why:** Over a long session, or with more than 19 targets, new nodes register but can't receive commands.
 - **Fix:** Remove the peer when a node goes offline, and log a clear error when the table is full.
 
+### #36 — Only ~37 KB of system heap is left for Wi-Fi after boot (found during fixing)
+`hub/main.py` (boot), MicroPython ESP32 heap behaviour
+- **What:** On ESP32, MicroPython grows its own heap out of the ESP-IDF heap whenever one allocation doesn't fit in the existing heap, and it never gives that memory back. During boot, one large allocation inside the hub's main module grows the Python heap by about 33 KB, which costs about 59 KB of IDF heap. Measured after boot: `idf_free≈37 KB` with no phones connected, while about 90 KB of Python heap sits unused. A test that reproduces the same growth then fails `wlan.config()` with `OSError: WiFi Out of Memory`.
+- **Why:** Wi-Fi clients, TCP sockets and ESP-NOW buffers all allocate from the IDF heap. Several phones connected at once (each loading the 29 KB page) could hit allocation failures in the middle of a game. This hasn't been seen in production yet, but the margin is thin.
+- **Measured, but not the fix on its own:** precompiling every hub module to `.mpy` (mpy-cross 1.27.0.post2) removes compile overhead, yet the growth still happens, because the trigger is a single large allocation, not compilation.
+- **Proposed fix (needs discussion):** find that allocation (probe: `tools/hub_harness.py` + `log_memory()`), and/or pre-grow nothing. For example, call `gc.collect()` around imports and avoid large bytes objects at boot. Deploying `.mpy` files also needs a build step and deleting `.py` copies on the hub, which needs your OK. The hub now logs a `MEM py_free=… idf_free=…` line every 60 s, so the margin is visible during real games.
+
 ## Low (not fixed in this pass, listed for you)
 
 - **#19** `game_engine.py:112`: the timer is broadcast when `remaining % 1000 < 150` on a 100 ms tick, so it can skip or double a second. Send it when the whole-second value changes.
