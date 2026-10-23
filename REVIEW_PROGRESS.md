@@ -39,7 +39,7 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - [x] docs/ADDING_A_NODE.md
 
 ## Phase 5 — Features
-- [ ] FEATURES.md
+- [x] FEATURES.md
 
 ## Finish
 - [ ] Summary at top of REVIEW.md, all committed on branch
