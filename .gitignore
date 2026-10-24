@@ -9,3 +9,4 @@ node_modules/
 web/dist/
 backup_node_*/
 backup_firmware/
+backup_node2_*/

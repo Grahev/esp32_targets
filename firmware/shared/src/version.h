@@ -4,7 +4,7 @@
 
 #define TARGETS_FW_MAJOR 2
 #define TARGETS_FW_MINOR 0
-#define TARGETS_FW_PATCH 0
+#define TARGETS_FW_PATCH 1
 
 #define TARGETS_STR2(x) #x
 #define TARGETS_STR(x) TARGETS_STR2(x)

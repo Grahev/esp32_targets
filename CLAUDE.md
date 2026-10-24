@@ -64,7 +64,7 @@ tools/deploy.sh all         # tests, then node, then hub
 
 # By hand
 (cd firmware/node && pio test -e native)            # 19 tests
-(cd firmware/hub && pio test -e native)             # 27 tests, incl. full games with simulated targets
+(cd firmware/hub && pio test -e native)             # 28 tests, incl. full games with simulated targets
 (cd web && npm run build)                           # -> firmware/hub/src/web/app_gz.h (budget 60 KB gzipped)
 (cd firmware/hub && pio run -e hub -t upload --upload-port $HUB)
 (cd firmware/node && pio run -e node -t upload --upload-port $NODE)

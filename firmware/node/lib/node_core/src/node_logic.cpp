@@ -137,6 +137,9 @@ void NodeLogic::sendHeartbeat() {
   p.mode = static_cast<uint8_t>(mode_);
   p.effect_id = effect_.id();
   p.uptime_s = (now_ - boot_ms_) / 1000;
+  p.fw_major = info_.fw_major;
+  p.fw_minor = info_.fw_minor;
+  p.fw_patch = info_.fw_patch;
   uint8_t buf[proto::MAX_FRAME];
   size_t n = proto::encode(buf, header(Msg::Heartbeat), p);
   enqueue(buf, n, true);

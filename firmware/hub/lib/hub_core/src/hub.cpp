@@ -205,7 +205,7 @@ void Hub::onFrame(const Mac& mac, const uint8_t* data, size_t len, int8_t rssi) 
     case Msg::Heartbeat: {
       stats_.rx_heartbeat++;
       proto::Heartbeat p;
-      if (proto::parsePayload(data, len, p)) handleHeartbeat(mac, h, p, rssi);
+      if (proto::parsePayload(data, len, p, proto::HEARTBEAT_MIN)) handleHeartbeat(mac, h, p, rssi);
       break;
     }
     case Msg::Hit: {
@@ -304,6 +304,12 @@ void Hub::handleHeartbeat(const Mac& mac, const Header& h, const proto::Heartbea
   n->flags = p.flags;
   n->mode = p.mode;
   n->uptime_s = p.uptime_s;
+  if (p.fw_major && (n->fw[0] != p.fw_major || n->fw[1] != p.fw_minor || n->fw[2] != p.fw_patch)) {
+    n->fw[0] = p.fw_major;  // known even if the hub restarted after the node's hello
+    n->fw[1] = p.fw_minor;
+    n->fw[2] = p.fw_patch;
+    nodes_dirty_ = true;
+  }
   seen(*n, rssi);
   sendAck(*n, Msg::Heartbeat, h.seq);
   if (p.mode != static_cast<uint8_t>(sys_mode_)) {

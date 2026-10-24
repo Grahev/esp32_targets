@@ -123,6 +123,32 @@ void test_link_stays_up() {
   TEST_ASSERT_EQUAL(1, w.online());
 }
 
+void test_fw_from_heartbeat_and_old_heartbeat_accepted() {
+  World w;
+  LinkedNode& n = w.addNode();
+  w.run(1000);
+  // Hub restarts: the node never says hello again, only heartbeats
+  MemFs saved = w.fs;
+  World w2(false);
+  w2.fs = saved;
+  w2.hub.begin(w2.now, 9);
+  w2.radio.nodes.push_back(std::move(w.radio.nodes[0]));
+  w2.radio.nodes[0]->radio = &w2.radio;
+  w2.run(5000);
+  TEST_ASSERT_EQUAL(1, w2.online());
+  TEST_ASSERT_TRUE(w2.events.last("nodes").find("\"fw\":\"" TARGETS_FW_VERSION "\"") != std::string::npos);
+  // A 2.0.0 node sends a 10-byte heartbeat: still understood
+  uint8_t buf[proto::MAX_FRAME];
+  proto::Heartbeat hb{};
+  hb.batt_pct = 42;
+  size_t len = proto::encode(buf, proto::makeHeader(proto::Msg::Heartbeat, w2.hub.settings().system_id, 1, 999), hb,
+                             proto::HEARTBEAT_MIN);
+  w2.hub.onFrame(w2.radio.nodes[0]->mac, buf, len, -50);
+  w2.run(20);
+  TEST_ASSERT_TRUE(w2.events.last("nodes").find("\"batt_pct\":42") != std::string::npos);
+  (void)n;
+}
+
 void test_manual_accept() {
   World w;
   w.hub.updateSettings(obj("{\"auto_accept\":false}").as<JsonObjectConst>());
@@ -415,6 +441,7 @@ int main() {
   RUN_TEST(test_players);
   RUN_TEST(test_auto_accept_pairs_node);
   RUN_TEST(test_link_stays_up);
+  RUN_TEST(test_fw_from_heartbeat_and_old_heartbeat_accepted);
   RUN_TEST(test_manual_accept);
   RUN_TEST(test_slot_limit);
   RUN_TEST(test_node_survives_hub_reboot);

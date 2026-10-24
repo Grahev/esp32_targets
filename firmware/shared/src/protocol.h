@@ -123,6 +123,8 @@ struct Heartbeat {
   uint8_t mode;
   uint8_t effect_id;  // id of the effect showing (lets the hub spot a lost LED command)
   uint32_t uptime_s;
+  // Appended in 2.0.1; older nodes send 10 bytes and these read as 0
+  uint8_t fw_major, fw_minor, fw_patch;
 };
 
 struct Hit {
@@ -197,7 +199,8 @@ struct OtaData {
 
 static_assert(sizeof(Header) == 8, "header layout");
 static_assert(sizeof(Hello) == 10, "hello layout");
-static_assert(sizeof(Heartbeat) == 10, "heartbeat layout");
+static_assert(sizeof(Heartbeat) == 13, "heartbeat layout");
+constexpr size_t HEARTBEAT_MIN = 10;  // 2.0.0 nodes
 static_assert(sizeof(Hit) == 10, "hit layout");
 static_assert(sizeof(Ack) == 8, "ack layout");
 static_assert(sizeof(Led) == 9, "led layout");
