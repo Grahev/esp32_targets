@@ -251,6 +251,18 @@ void test_other_system_ignored_until_search_is_long() {
   TEST_ASSERT_EQUAL_UINT16(0x9999, r.cfg.system_id);
 }
 
+void test_hub_ack_keeps_link() {
+  Rig r;
+  r.link();
+  for (int i = 0; i < 30; i++) {  // 60 s: the hub answers every heartbeat
+    r.run(2000);
+    const Sent* hb = r.io.last(Msg::Heartbeat);
+    proto::Ack a{static_cast<uint8_t>(Msg::Heartbeat), hb->h().seq, 0, 0};
+    r.fromHub(Msg::HubAck, a);
+  }
+  TEST_ASSERT_EQUAL(LinkState::Linked, r.logic.state());
+}
+
 void test_missed_heartbeats_go_back_to_search() {
   Rig r;
   r.link();
@@ -391,6 +403,7 @@ int main() {
   RUN_TEST(test_welcome_links_and_heartbeats);
   RUN_TEST(test_pending_then_accepted);
   RUN_TEST(test_other_system_ignored_until_search_is_long);
+  RUN_TEST(test_hub_ack_keeps_link);
   RUN_TEST(test_missed_heartbeats_go_back_to_search);
   RUN_TEST(test_radio_failures_go_back_to_search);
   RUN_TEST(test_led_only_in_active_and_hit_reports_rt);

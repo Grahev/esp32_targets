@@ -69,6 +69,11 @@ class Hub : public GameHost {
   bool gameRunning() const { return game_ != nullptr; }
   bool otaRunning() const { return ota_.active; }
   bool safeMode() const { return safe_mode_; }
+  struct RadioStats {
+    uint32_t rx_hello = 0, rx_heartbeat = 0, rx_hit = 0, rx_ack = 0, rx_other_system = 0, rx_dup = 0;
+    uint32_t tx = 0, tx_ok = 0, tx_fail = 0;
+  };
+  const RadioStats& radioStats() const { return stats_; }
   uint32_t epochNow() const;
   // True once when the WiFi access point should be restarted with new settings
   bool wifiApplyDue(uint32_t now);
@@ -169,6 +174,7 @@ class Hub : public GameHost {
   std::vector<PendingCmd> pending_;
   std::vector<uint8_t> slots_;
   NodeOta ota_;
+  RadioStats stats_;
 
   uint32_t now_ = 0;
   uint32_t rng_ = 1;

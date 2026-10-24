@@ -73,6 +73,7 @@ void Hub::radioSend(const Mac& mac, const uint8_t* data, size_t len) {
     vnodes_.deliver(&mac, data, len);
     return;
   }
+  stats_.tx++;
   radio_.send(mac, data, len);
 }
 
@@ -155,11 +156,12 @@ void Hub::sendConfig(NodeRec& n) {
 void Hub::sendAck(NodeRec& n, Msg type, uint16_t seq) {
   proto::Ack a{static_cast<uint8_t>(type), seq, 0, 0};
   uint8_t buf[proto::MAX_FRAME];
-  size_t len = proto::encode(buf, header(Msg::Ack, n.slot), a);
+  size_t len = proto::encode(buf, header(Msg::HubAck, n.slot), a);
   radioSend(n.mac, buf, len);
 }
 
 void Hub::onSendResult(const Mac& mac, bool ok) {
+  ok ? stats_.tx_ok++ : stats_.tx_fail++;
   NodeRec* n = reg_.byMac(mac);
   if (!n) return;
   if (ok) {
@@ -176,12 +178,16 @@ void Hub::onSendResult(const Mac& mac, bool ok) {
 void Hub::onFrame(const Mac& mac, const uint8_t* data, size_t len, int8_t rssi) {
   Header h;
   if (!proto::parseHeader(data, len, h) || !proto::isNodeToHub(h.type)) return;
-  if (h.system_id != 0 && h.system_id != settings_.system_id) return;  // another hub's target
+  if (h.system_id != 0 && h.system_id != settings_.system_id) {
+    stats_.rx_other_system++;
+    return;  // another hub's target
+  }
 
   NodeRec* n = reg_.byMac(mac);
   if (n) {
     if (n->has_seq && h.seq == n->last_seq && now_ - n->last_seq_at < 2000) {
       n->last_seen = now_;  // a retry of a frame we already handled
+      stats_.rx_dup++;
       return;
     }
     n->has_seq = true;
@@ -191,16 +197,19 @@ void Hub::onFrame(const Mac& mac, const uint8_t* data, size_t len, int8_t rssi) 
 
   switch (static_cast<Msg>(h.type)) {
     case Msg::Hello: {
+      stats_.rx_hello++;
       proto::Hello p;
       if (proto::parsePayload(data, len, p)) handleHello(mac, h, p, rssi);
       break;
     }
     case Msg::Heartbeat: {
+      stats_.rx_heartbeat++;
       proto::Heartbeat p;
       if (proto::parsePayload(data, len, p)) handleHeartbeat(mac, h, p, rssi);
       break;
     }
     case Msg::Hit: {
+      stats_.rx_hit++;
       proto::Hit p;
       if (n && proto::parsePayload(data, len, p)) {
         seen(*n, rssi);
@@ -209,6 +218,7 @@ void Hub::onFrame(const Mac& mac, const uint8_t* data, size_t len, int8_t rssi) 
       break;
     }
     case Msg::Ack: {
+      stats_.rx_ack++;
       proto::Ack p;
       if (n && proto::parsePayload(data, len, p)) {
         seen(*n, rssi);

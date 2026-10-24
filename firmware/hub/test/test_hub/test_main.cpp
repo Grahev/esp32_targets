@@ -112,6 +112,17 @@ void test_auto_accept_pairs_node() {
   TEST_ASSERT_EQUAL(1, w.radio.peers.size());
 }
 
+void test_link_stays_up() {
+  World w;
+  LinkedNode& n = w.addNode();
+  w.run(1000);
+  w.log.lines.clear();
+  w.run(120000);  // two minutes of heartbeats
+  TEST_ASSERT_EQUAL(LinkState::Linked, n.logic->state());
+  for (auto& l : w.log.lines) TEST_ASSERT_TRUE_MESSAGE(l.find("offline") == std::string::npos, l.c_str());
+  TEST_ASSERT_EQUAL(1, w.online());
+}
+
 void test_manual_accept() {
   World w;
   w.hub.updateSettings(obj("{\"auto_accept\":false}").as<JsonObjectConst>());
@@ -403,6 +414,7 @@ int main() {
   RUN_TEST(test_history_trimmed);
   RUN_TEST(test_players);
   RUN_TEST(test_auto_accept_pairs_node);
+  RUN_TEST(test_link_stays_up);
   RUN_TEST(test_manual_accept);
   RUN_TEST(test_slot_limit);
   RUN_TEST(test_node_survives_hub_reboot);

@@ -40,6 +40,7 @@ enum class Msg : uint8_t {
   OtaEnd = 0x89,
   Reboot = 0x8A,
   Forget = 0x8B,
+  HubAck = 0x8C,     // answer to a Heartbeat (types below 0x80 are node -> hub only)
 };
 
 // System mode of a node (what its LED shows when no game effect is set)

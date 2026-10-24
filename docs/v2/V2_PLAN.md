@@ -282,7 +282,7 @@ System name, AP SSID, AP password (optional; the default is **open**, as in v1),
 ```
 
 ### 7.7 Flash partitions (hub, 4 MB)
-`nvs 20K | otadata 8K | app0 1.25M | app1 1.25M | littlefs ~1.4M | coredump 64K`. Hub OTA keeps a known-good image, and **automatic rollback** happens if the new image doesn't confirm itself healthy within 60 s.
+`nvs 20K | otadata 8K | app0 1.5M | app1 1.5M | littlefs 896K | coredump 64K` (changed from 1.25M apps: the first build used 92% of 1.25 MB). Hub OTA keeps a known-good image, and **automatic rollback** happens if the new image doesn't confirm itself healthy within 60 s.
 
 ---
 

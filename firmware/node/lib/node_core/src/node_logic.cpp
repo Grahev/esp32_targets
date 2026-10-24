@@ -291,8 +291,8 @@ void NodeLogic::onHubFrame(const Header& h, const uint8_t* data, size_t len, uin
   missed_heartbeats_ = 0;
   Msg type = static_cast<Msg>(h.type);
   switch (type) {
-    case Msg::Ack:
-      break;  // heartbeat answered
+    case Msg::HubAck:
+      break;  // heartbeat answered (missed_heartbeats_ was reset above)
     case Msg::SetMode: {
       proto::SetMode p;
       if (!proto::parsePayload(data, len, p)) return;
