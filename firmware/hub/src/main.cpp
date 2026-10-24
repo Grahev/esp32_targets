@@ -79,6 +79,50 @@ class Actions : public WebActions {
 };
 Actions actions;
 
+// Serial console for testing without WiFi:
+//   state | stop | start <mode> [json settings] | set <json settings> | sensor on|off
+void serialConsole() {
+  static String line;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c != '\n' && c != '\r') {
+      if (line.length() < 200) line += c;
+      continue;
+    }
+    if (line.isEmpty()) continue;
+    String cmd = line;
+    line = "";
+    HubLock lock;
+    if (!lock.ok()) continue;
+    ApiResult r = ApiResult::ok();
+    if (cmd == "state") {
+      JsonDocument d;
+      hub.stateJson(d.to<JsonObject>());
+      serializeJson(d, Serial);
+      Serial.println();
+      continue;
+    } else if (cmd == "stop") {
+      r = hub.stopGame();
+    } else if (cmd.startsWith("start ")) {
+      String rest = cmd.substring(6);
+      int sp = rest.indexOf(' ');
+      String mode = sp < 0 ? rest : rest.substring(0, sp);
+      JsonDocument cfg;
+      if (sp > 0) deserializeJson(cfg, rest.substring(sp + 1));
+      r = hub.startGame(mode.c_str(), cfg.as<JsonObjectConst>(), 0, true);
+    } else if (cmd.startsWith("set ")) {
+      JsonDocument d;
+      deserializeJson(d, cmd.substring(4));
+      r = hub.updateSettings(d.as<JsonObjectConst>());
+    } else if (cmd.startsWith("sensor ")) {
+      r = hub.setSensorTest(cmd.endsWith("on"));
+    } else {
+      r = ApiResult::err(400, "commands: state | stop | start <mode> [json] | set <json> | sensor on|off");
+    }
+    Serial.printf("> %d %s\n", r.code, r.msg.c_str());
+  }
+}
+
 }  // namespace
 
 // Arduino-ESP32: keep a freshly updated image "pending" until we say it is
@@ -134,6 +178,7 @@ void loop() {
     }
   }
   dns.processNextRequest();
+  serialConsole();
 
   if (now - last_ws_cleanup >= 1000) {
     last_ws_cleanup = now;

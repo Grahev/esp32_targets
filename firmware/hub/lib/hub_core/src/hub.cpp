@@ -483,6 +483,9 @@ void Hub::ledAll(const LedCmd& cmd) {
 }
 
 void Hub::feed(uint8_t slot, int points, int rt_ms, const char* note) {
+  char line[80];
+  snprintf(line, sizeof(line), "hit target %u: %+d pts, %d ms %s", slot, points, rt_ms, note ? note : "");
+  log_.line(line);
   JsonDocument d;
   d["t"] = "feed";
   d["slot"] = slot;
@@ -602,6 +605,10 @@ void Hub::endGame(bool natural, bool save) {
     }
     res["saved"] = saved;
     res["rank"] = rank;
+    char line[96];
+    snprintf(line, sizeof(line), "game over: %s score %ld, %s (rank %d)", game_mode_.c_str(), game_->score(),
+             saved ? "saved" : "not saved", rank);
+    log_.line(line);
     last_result_.clear();
     serializeJson(res, last_result_);
     emit(r);
