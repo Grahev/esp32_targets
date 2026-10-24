@@ -1,0 +1,8 @@
+{
+  "name": "node_core",
+  "version": "2.0.0",
+  "description": "Target node logic without hardware (used by the node firmware, hub virtual targets and tests)",
+  "frameworks": "*",
+  "platforms": "*",
+  "dependencies": { "targets_shared": "*" }
+}
