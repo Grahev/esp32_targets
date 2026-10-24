@@ -55,7 +55,7 @@ void test_scores_ranked_and_capped() {
   TEST_ASSERT_EQUAL(10, top[49]["s"].as<int>());
   JsonDocument e;
   e["s"] = 30;
-  TEST_ASSERT_EQUAL(30, r.addScore("time_attack", e.as<JsonObjectConst>()));  // rank 30
+  TEST_ASSERT_EQUAL(31, r.addScore("time_attack", e.as<JsonObjectConst>()));  // a tie ranks after the older score
   e["s"] = 1;
   TEST_ASSERT_EQUAL(0, r.addScore("time_attack", e.as<JsonObjectConst>()));  // not in the top 50
 }
@@ -328,7 +328,11 @@ void test_real_node_game_and_reaction_time() {
   LinkedNode& n = w.addNode();
   w.run(500);
   w.hub.startGame("free_practice", obj("{\"pace\":\"Fast\"}").as<JsonObjectConst>(), 0, false);
-  w.run(4500);  // countdown, then a target lights
+  auto red = [&] {
+    Rgb c = n.logic->led(w.now);
+    return c.r > 0 && c.g == 0 && c.b == 0;
+  };
+  for (int i = 0; i < 800 && !red(); i++) w.run(10);  // countdown, then the target lights red
   Rgb c = n.logic->led(w.now);
   TEST_ASSERT_TRUE(c.r > 0 && c.g == 0);
   w.run(600);

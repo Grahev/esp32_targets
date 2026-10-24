@@ -225,8 +225,9 @@ class ShootNoShoot : public GameMode {
     }
     uint8_t s = spawner_.pick(host_, busy);
     if (!s) return;
-    // Always leave the player something to shoot
-    bool threat = !has_threat || host_.random(100) >= TUNING[di_].hostage_pct;
+    // Never light only hostages at once: with others lit, at least one is a threat.
+    // A single target on its own may be a hostage (hold fire until it goes dark).
+    bool threat = (!busy.empty() && !has_threat) || host_.random(100) >= TUNING[di_].hostage_pct;
     Active a{s, threat, now, now + window(threat), 0, false};
     if (TUNING[di_].switch_pct && host_.random(100) < TUNING[di_].switch_pct) {
       a.switch_at = now + window(threat) / 2;

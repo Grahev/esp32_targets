@@ -2,6 +2,8 @@
 
 Usage: python3 tools/serial_log.py PORT [SECONDS] [--reset]
   --reset  pulse RTS to hard-reset the board first, then capture its boot log.
+  --send=CMD  type CMD + newline on the v2 node console (repeatable; one every
+              2 s, starting 3 s in), e.g. --send=info --send=hit
 Opening the port never sends Ctrl-C, so a running main.py keeps running.
 """
 import sys
@@ -29,8 +31,12 @@ def main():
         s.rts = True
         time.sleep(0.1)
         s.rts = False
-    end = time.time() + seconds
+    sends = [a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--send=')]
+    start = time.time()
+    end = start + seconds
     while time.time() < end:
+        if sends and time.time() - start >= 3 + 2 * (len([a for a in sys.argv if a.startswith('--send=')]) - len(sends)):
+            s.write((sends.pop(0) + '\n').encode())
         d = s.read(512)
         if d:
             sys.stdout.write(d.decode('utf-8', 'replace'))
