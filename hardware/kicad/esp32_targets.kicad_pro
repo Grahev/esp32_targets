@@ -1,0 +1,21 @@
+{
+  "meta": {
+    "filename": "esp32_targets.kicad_pro",
+    "version": 1
+  },
+  "sheets": [
+    [
+      "9452e2c3-ffc6-52ed-bce9-1aa1ce8658a5",
+      ""
+    ],
+    [
+      "1b4f3883-b841-553e-a0e4-f28b690bf51d",
+      "Target node"
+    ],
+    [
+      "d5d7b9b6-c0c2-5117-a536-cd3ab157c373",
+      "Hub"
+    ]
+  ],
+  "text_variables": {}
+}
