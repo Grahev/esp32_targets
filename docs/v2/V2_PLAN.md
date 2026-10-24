@@ -1,7 +1,7 @@
 # ESP32 Targets — Version 2 plan
 
-**Status:** DRAFT, waiting for approval. No v2 code is written until this plan is approved.
-**Branch:** `v2/plan` (branched from `review/full-pass`, which holds all v1 fixes).
+**Status:** APPROVED 2026-10-24 (stack B). Build branch: `v2/build`.
+**Branch:** `v2/plan` → `v2/build` (from `master` = tag `v1.0`, which holds all v1 fixes).
 **Date:** 2026-10-24
 
 ---
@@ -554,12 +554,17 @@ Each milestone ends with a demo, a commit series on a `v2/*` branch, and your go
 
 ---
 
-## 18. Decisions needed from you before the build starts
-1. **Stack:** approve **B** (C++/Arduino + Preact), or choose A (stay on MicroPython).
-2. **Reflash approval for spike M0:** the node first (with a rollback test), then the hub. The real score files are backed up first and never touched.
-3. **Merge `review/full-pass` into `master` and tag `v1.0`** as the v1 baseline? (`v2/plan` branches from it.)
-4. **WiFi:** keep the AP open by default (as now), or require a password set in the wizard?
-5. **`scores_time_attack.json`** (old format): migrate it, archive it, or drop it?
-6. **Mode priority:** after the ports, which new mode first: Shoot/No-Shoot, Zombie or Drill?
-7. **Optional hardware:** will you get 1–2 extra D1 Minis or buzzers? This only changes the test plan.
-8. **Milestone order:** OTA (M7) before new modes (M8), or the other way round?
+## 18. Decisions (answered 2026-10-24)
+| # | Question | Decision |
+|---|---|---|
+| 1 | Stack | **B: C++/Arduino + Preact** (approved) |
+| 2 | Reflash | **Approved.** The boards were unplugged on 2026-10-24, so code is prepared now and flashed in the next session (backup first, node first). |
+| 3 | Merge + tag | **Done:** `review/full-pass` fast-forwarded into `master`, tagged `v1.0`, branch deleted. v1 code moved to `legacy/v1/` on `v2/build`. |
+| 4 | WiFi | **Open by default; optional password in Settings** (WPA2, 8–63 chars, empty = open). |
+| 5 | `scores_time_attack.json` | **Dropped:** not migrated (it is still in the local backup folders). |
+| 6 | New mode order | **Shoot/No-Shoot → Drill → Zombie.** Shoot/No-Shoot reuses the Time Attack+ scheduler and is the cheapest multi-node mode; Drill needs a course editor; Zombie needs the node `RAMP` effect to be proven on hardware first. |
+| 7 | Extra hardware | Open. The plan doesn't depend on it. |
+| 8 | OTA vs new modes | **Hub OTA (upload) in M6, node OTA over ESP-NOW in M7, then the new modes in M8.** Hub OTA is cheap (built in). Node OTA matters before nodes 2–5 are built, so they are never flashed by USB twice. |
+
+## 19. Build environment note (2026-10-24)
+The build VM's root disk was 98% full (1.7 GB free), and the ESP32 Arduino 3.x toolchain needs about 2 GB. The node toolchain, the web tooling and host tests fit; the **hub firmware compile needs more disk** (grow the VM disk, or free space) before flashing.
