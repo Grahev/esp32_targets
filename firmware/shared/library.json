@@ -1,0 +1,8 @@
+{
+  "name": "targets_shared",
+  "version": "2.0.0",
+  "description": "Radio protocol and version constants shared by the hub, the nodes and the host tests",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": { "srcDir": "src", "includeDir": "src" }
+}
