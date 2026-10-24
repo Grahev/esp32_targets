@@ -50,5 +50,5 @@ Resume from the first unchecked item. Board backups: `./backup_hub/`, `./backup_
 - Board vs repo (Phase 1): code identical apart from CRLF endings; board-only = boot.py (default) + scores_*.json; repo-only = docs/, tests/, prd.md, README.md.
 - Existing tests are stale: test_time_attack.py imports a removed class, test_protocol.py uses an old pack_message signature.
 - Left on hub by a test: `_selftest.json` (13 bytes). Needs user OK to delete.
-- Hub memory (#36): idf_free ~37 KB after boot. Test files left on hub by the investigation: `/microdot*.mpy` (3 files, same code as lib/, currently loaded first because `/` precedes `/lib` in sys.path) and `/app/` (compiled test copies). Need user OK to delete.
+- Hub memory (#36): fixed 2026-10-24, idf_free 37 KB -> 96 KB at boot (Microdot replaced by hub/webserver.py, hub deployed as .mpy via tools/build_hub.sh). Test leftovers on the hub were deleted with user approval.
 - Harness scripts must stay small (big scripts grow the heap and starve WiFi): use a trimmed copy with only the needed scenario.

@@ -1,6 +1,6 @@
 """Hardware test harness that runs ON THE HUB:  timeout 90 mpremote connect $HUB run tools/hub_harness.py
 
-Imports the real main.py (without starting the web server), runs the radio
+Imports the real hub program, hub_app (without starting the web server), runs the radio
 listener and game loop, waits for nodes, then calls the HTTP route handlers
 directly. Watch the node side at the same time with tools/serial_log.py.
 Change SCENARIO to pick a test. Reset the hub afterwards.
@@ -8,8 +8,8 @@ Change SCENARIO to pick a test. Reset the hub afterwards.
 import time
 import uasyncio as asyncio
 
-import main
-from main import hub
+import hub_app as main
+from hub_app import hub
 
 SCENARIO = 'stop'
 
@@ -131,7 +131,7 @@ async def scenario_idle():
 async def run():
     import network
     ap = network.WLAN(network.AP_IF)
-    # main.py already set up the AP at boot; reconfiguring a running AP can
+    # hub_app already set up the AP at boot; reconfiguring a running AP can
     # fail with "WiFi Out of Memory", so only do it if needed
     if not (ap.active() and ap.config('essid') == main.AP_SSID):
         main.setup_wifi()

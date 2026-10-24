@@ -2,7 +2,7 @@
 
   python3 tools/fake_nodes.py [--nodes 8] [--seed 1]
 
-The hub's real main.py, game_engine.py, node_registry.py and the v2 packet
+The hub's real hub_app.py, game modes, node_registry.py and the v2 packet
 format run unchanged (MicroPython-only modules are stubbed, see
 tests/hub_env.py). Each fake node behaves like node/main.py: it announces
 every 5 s, obeys SET_ID / SET_MODE / SET_LED, and a simulated player shoots

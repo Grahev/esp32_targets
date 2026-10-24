@@ -1,6 +1,6 @@
 """PC simulation of the hub for game-mode tests: fake clock, fake engine, N nodes.
 
-game_engine.py is MicroPython code; on CPython we give it a fake `time`
+The game modes are MicroPython code; on CPython we give them a fake `time`
 module (ticks_*) and a seeded `random`, then drive tick() by hand.
 """
 import os
@@ -11,7 +11,8 @@ HUB_DIR = os.path.join(os.path.dirname(__file__), '..', 'hub')
 if HUB_DIR not in sys.path:
     sys.path.insert(0, HUB_DIR)
 
-import game_engine  # noqa: E402
+import mode_time_attack  # noqa: E402
+import mode_breach  # noqa: E402
 
 
 class FakeTime:
@@ -74,8 +75,9 @@ class FakeEngine:
 class Sim:
     def __init__(self, node_ids, seed=1):
         self.clock = FakeTime()
-        game_engine.time = self.clock
-        game_engine.random = _random.Random(seed)
+        for m in (mode_time_attack, mode_breach):
+            m.time = self.clock
+            m.random = _random.Random(seed)
         self.engine = FakeEngine(node_ids)
 
     def run(self, game, ms, step=100):

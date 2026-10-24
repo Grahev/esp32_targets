@@ -239,6 +239,17 @@ class FastWS(SlowWS):
 
 
 class TestWebSocketClients(unittest.TestCase):
+    def test_client_cap_drops_the_oldest(self):
+        fresh_hub()
+        clients = [FastWS() for _ in range(main.MAX_WS_CLIENTS + 1)]
+
+        async def go():
+            for ws in clients:
+                main.add_client(ws)
+            await asyncio.sleep(0)
+        asyncio.run(go())
+        self.assertEqual(main.connected_clients, clients[1:])
+
     def test_stuck_client_is_dropped_others_keep_receiving(self):
         hub, _ = fresh_hub()
         main.WS_SEND_TIMEOUT = 0.05

@@ -1,7 +1,7 @@
-"""Import the real hub/main.py on CPython, with MicroPython-only modules stubbed.
+"""Import the real hub program (hub/hub_app.py) on CPython, with MicroPython-only modules stubbed.
 
 Gives tests a fake radio (FakeESP) and a fake clock shared by main.py,
-node_registry.py and game_engine.py.
+node_registry.py and the game mode modules.
 """
 import asyncio
 import json
@@ -45,21 +45,6 @@ def _install_stubs():
     machine.reset = lambda: None
     sys.modules['machine'] = machine
 
-    md = types.ModuleType('microdot_asyncio')
-
-    class Microdot:
-        def route(self, path):
-            return lambda f: f
-
-    md.Microdot = Microdot
-    md.Response = object
-    md.send_file = lambda path: path
-    sys.modules['microdot_asyncio'] = md
-    mws = types.ModuleType('microdot_websocket')
-    mws.with_websocket = lambda f: f
-    mws.WebSocket = object
-    sys.modules['microdot_websocket'] = mws
-
 
 class FakeClock:
     def __init__(self):
@@ -96,8 +81,9 @@ class FakeESP:
 
 _install_stubs()
 os.chdir(tempfile.mkdtemp())  # nodes.json / scores files land here
-import main  # noqa: E402
-import game_engine  # noqa: E402
+import hub_app as main  # noqa: E402
+import mode_time_attack  # noqa: E402
+import mode_breach  # noqa: E402
 import node_registry  # noqa: E402
 
 
@@ -107,7 +93,8 @@ def fresh_hub():
         os.remove(f)
     clock = FakeClock()
     main.time = clock
-    game_engine.time = clock
+    mode_time_attack.time = clock
+    mode_breach.time = clock
     node_registry.ticks_diff = clock.ticks_diff
     hub = main.HUB_SYSTEM()
     hub.esp = FakeESP()

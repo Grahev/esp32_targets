@@ -22,7 +22,7 @@
 | 14 | Stuck WebSocket clients | Fixed | PC test; hardware: closed client dropped |
 | 15 | Silent start/stop failures | Fixed | PC tests; hardware HTTP: 400 with reason, 409 with no nodes |
 | 16 | Stale tests | Fixed | `python3 -m unittest discover -s tests`: 39 tests pass |
-| 36 | Low system heap (~37 KB) for WiFi | **Needs discussion** | Root cause measured on cold boots; options below |
+| 36 | Low system heap (~37 KB) for WiFi | Fixed (mostly): 37 → 96 KB at boot | Cold-boot measurements; on-hub web/memory load test; PC tests (44) |
 
 **Found and fixed during testing:**
 - A node dying while lit left the player with nothing to shoot for up to 15 s. Lit targets are now re-sent every 2 s, and a missing ACK drops the node within about 2 s (verified on hardware).
@@ -41,11 +41,8 @@
 - Docs that are out of date (#29: README, SETUP_GUIDE, USER_MANUAL, PRD).
 
 **What I need from you:**
-1. **OK to delete test leftovers on the hub:**
-   - `/_selftest.json`.
-   - `/app/`: compiled test copies, unused.
-   - `/microdot.mpy`, `/microdot_asyncio.mpy`, `/microdot_websocket.mpy`. These hold the same code as `lib/`, and the hub currently loads them first because `/` comes before `/lib` in `sys.path`.
-2. **Decide on #36:** investigate the boot-time allocation, and/or move to precompiled `.mpy` deploys (needs a build step and deleting `.py` copies on the hub).
+1. ~~OK to delete test leftovers on the hub~~: done with your approval on 2026-10-23.
+2. **#36 is mostly fixed** (37 → 96 KB free for Wi-Fi at boot). If heavy use with both game modes still pushes it down, the remaining option is custom firmware (see #36).
 3. **Decide on a hardware watchdog:** an ESP32 `machine.WDT` can't be stopped once started, so it would reboot the hub in the middle of `mpremote` uploads unless uploads happen within its timeout.
 4. **`scores_time_attack.json`:** an orphan in the old format; delete or keep (#35).
 5. **A real game on the dashboard from a phone**, to check the UI changes: offline nodes dimmed, refusal messages. I couldn't run a browser against the hub from here.
@@ -171,15 +168,26 @@ Line numbers refer to the code as it was at commit `5d2ba5a` (before any fixes).
 - **Why:** Over a long session, or with more than 19 targets, new nodes register but can't receive commands.
 - **Fix:** Remove the peer when a node goes offline, and log a clear error when the table is full.
 
-### #36 — Only ~37 KB of system heap is left for Wi-Fi after boot (investigated 2026-10-23)
-`hub/main.py` and `hub/lib/microdot*.py`, MicroPython ESP32 heap behaviour
-- **What (measured on cold boots with `micropython.mem_info()`):** the hub's Python heap starts at **56 KB**. After `main.py` loads, **52.6 KB** of it is live: Microdot ≈ 23 KB, `game_engine` ≈ 11 KB, `main.py`'s own code ≈ 11 KB, the rest ≈ 8 KB. The next allocation doesn't fit, so MicroPython doubles the heap to 112 KB and takes 56 KB from the IDF heap. That leaves Wi-Fi, sockets and ESP-NOW about 37 KB (Wi-Fi itself uses ≈ 46 KB of the 143 KB available at boot).
-- **Not the cause (tested):** compiling from source, import order, ESP-NOW init order, or ESP-NOW and web traffic as such. Precompiling every module to `.mpy` did **not** raise `idf_free`, because loaded code still lives in RAM.
-- **Why it matters:** the margin for phones is thin. If Python usage ever passes 112 KB, the next growth step takes the last ~38 KB of IDF heap and Wi-Fi fails. Today the hub uses ~55–60 KB of its 112 KB, so it's far from that point.
-- **Options (your call):**
-  1. **Keep the Python heap inside its first 56 KB:** replace Microdot (a general framework, ≈ 23 KB of RAM, of which we use 5 routes + a WebSocket) with a small purpose-built HTTP/WebSocket server (≈ 5 KB), and deploy hub modules as `.mpy` so nothing is compiled at boot. Expected `idf_free` ≈ 90 KB while the heap stays under 56 KB. This is an M-sized rewrite of the web layer, and the dashboard needs a check from a real phone.
-  2. **Keep the design and add guard rails:** cap simultaneous WebSocket clients (e.g. 4) and keep watching the `MEM` log line during real games. No memory recovered.
-- The hub logs `MEM py_free=… idf_free=…` every 60 s, so the margin is visible during real games.
+### #36 — Only ~37 KB of system heap was left for Wi-Fi after boot — **Fixed (mostly)**
+`hub/` (whole hub program)
+- **Cause (measured on cold boots):** the hub's Python heap starts at **56 KB**. With Microdot (≈23 KB of RAM) and everything else loaded, 52.6 KB of it was live after boot. The next allocation forced MicroPython to double the heap to 112 KB, taking 56 KB from the IDF heap that Wi-Fi, sockets and ESP-NOW use.
+- **Fix:**
+  1. `hub/webserver.py`, a ~200-line HTTP + WebSocket server, replaces Microdot (5.4 KB of RAM instead of ≈23 KB).
+  2. Hub modules are deployed **precompiled** (`tools/build_hub.sh`, mpy-cross 1.27), so nothing big is compiled at boot. The program is now `hub_app.py`, and `main.py` is a 3-line stub.
+  3. Each game mode has its own module, loaded the first time it's played.
+  4. Leaderboards are streamed from the file into the HTTP/WebSocket reply instead of being parsed and rebuilt as one string.
+  5. The game is freed before the score is saved at game over.
+- **Result (cold boot, real hub):**
+
+| | Before | After |
+|---|---:|---:|
+| `idf_free` after boot | 37 084 B | **96 480 B** |
+| Python live data after boot | 52.6 KB of 56 KB | **29.7 KB** |
+| Load test: 2 WebSocket clients + page loads + a game (test overhead included) | — | `idf_free` 87–96 KB, no heap growth |
+
+- **What's left:** once **both** game modes have been played, live data is ≈45 KB with 2 phones connected (≈50 KB in the load test, which carries ≈5 KB of its own). Heavy use can then still make the heap grow, and `idf_free` falls back to about the old level (~30–37 KB) until it shrinks again. Unloading game modes doesn't help: MicroPython's conservative GC doesn't reliably free them. A full fix needs firmware changes (a larger initial heap, frozen modules, or ROMFS, none of which this build supports), so it needs your decision.
+- **Also found:** the firmware allows only **10 sockets**, so dashboard connections are now capped at 5 (`MAX_WS_CLIENTS`; the oldest is dropped).
+- The hub logs `MEM py_used=… idf_free=…` every 60 s.
 
 ## Low (not fixed in this pass, listed for you)
 

@@ -7,8 +7,8 @@ flowchart LR
     subgraph Players
         B1[Phone / laptop browser]
     end
-    subgraph HUB["HUB — ESP32 (main.py)"]
-        WEB[Microdot HTTP :80<br>/ /start /stop /api/leaderboard]
+    subgraph HUB["HUB — ESP32 (hub_app)"]
+        WEB[webserver.py HTTP :80<br>/ /start /stop /api/leaderboard]
         WS[WebSocket /ws]
         L[espnow_listener]
         G[game_loop → GameMode.tick 100 ms]
@@ -54,11 +54,12 @@ sequenceDiagram
 
 | Area | Repo file | Runs on |
 |------|-----------|---------|
-| Protocol (struct formats, constants) | `common/espnow_utils.py` | hub + node |
-| Hub entry, radio, web server, scores | `hub/main.py` | hub (as `:main.py`) |
-| Game modes | `hub/game_engine.py` | hub |
+| Protocol (struct formats, constants) | `common/espnow_utils.py` | hub (`.mpy`) + node (`.py`) |
+| Boot stub | `hub/main.py` | hub `:main.py` |
+| Hub program: radio, node tracking, routes, scores | `hub/hub_app.py` | hub `:hub_app.mpy` |
+| HTTP + WebSocket server | `hub/webserver.py` | hub `:webserver.mpy` |
+| Game modes | `hub/game_engine.py` (base), `hub/mode_time_attack.py`, `hub/mode_breach.py` | hub (`.mpy`) |
 | Dashboard | `hub/static/index.html` | browser, served by hub |
-| Web framework | `hub/lib/microdot*.py` | hub `:lib/` |
 | Node firmware | `node/main.py` | each node (as `:main.py`) |
 
 See CLAUDE.md "How the project works" for the packet layout and the mode values.

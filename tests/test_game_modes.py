@@ -2,7 +2,8 @@ import unittest
 from collections import Counter
 
 from sim import Sim
-import game_engine
+from mode_time_attack import TimeAttackPlus, DifficultyConfig
+from mode_breach import TheBreach
 
 RED = (255, 0, 0)
 ORANGE = (255, 140, 0)
@@ -10,7 +11,7 @@ ORANGE = (255, 140, 0)
 
 def new_time_attack(nodes, seed=1, **kw):
     sim = Sim(nodes, seed)
-    game = game_engine.TimeAttackPlus(sim.engine, **kw)
+    game = TimeAttackPlus(sim.engine, **kw)
     game.start()
     sim.run_until(game, lambda: game.state == "PLAYING")
     return sim, game
@@ -43,7 +44,7 @@ class TestTimeAttackMultiNode(unittest.TestCase):
     def test_lit_count_never_exceeds_difficulty_minimum(self):
         sim, game = new_time_attack([1, 2, 3, 4, 5, 6, 7, 8], duration_min=2, difficulty="Hard")
         while game.state == "PLAYING":
-            curve = game_engine.DifficultyConfig.MIN_TARGET_CURVE["Hard"]
+            curve = DifficultyConfig.MIN_TARGET_CURVE["Hard"]
             self.assertLessEqual(len(sim.engine.lit()), curve[game.intensity_stage])
             lit = sim.engine.lit()
             if lit:
@@ -121,7 +122,7 @@ class TestTimeAttackMultiNode(unittest.TestCase):
 
 def new_breach(nodes, seed=3):
     sim = Sim(nodes, seed)
-    game = game_engine.TheBreach(sim.engine)
+    game = TheBreach(sim.engine)
     game.start()
     return sim, game
 

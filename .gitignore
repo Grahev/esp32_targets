@@ -3,3 +3,4 @@ backup_node/
 __pycache__/
 *.pyc
 backup_hub_*/
+build/

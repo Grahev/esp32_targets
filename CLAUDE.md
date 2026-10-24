@@ -28,13 +28,17 @@ NODE=$(ls /dev/serial/by-id/usb-1a86_* | head -1)
 
 ```
 boot.py
-main.py                  # entry point, runs on boot
-game_engine.py           # core game logic
-storage.py               # atomic JSON load/save
-node_registry.py         # node IDs by MAC, heartbeat/offline tracking
-common/                  # shared code (hub + node)
-hub/                     # hub-specific code (static/index.html)
-lib/                     # libraries
+main.py                  # 3-line boot stub: imports hub_app and runs it
+hub_app.mpy              # the hub program (compiled from hub/hub_app.py)
+webserver.mpy            # small HTTP + WebSocket server (replaced Microdot)
+game_engine.mpy          # GameMode base class
+mode_time_attack.mpy     # Time Attack+ (loaded the first time it's played)
+mode_breach.mpy          # The Breach (loaded the first time it's played)
+storage.mpy              # atomic JSON load/save
+node_registry.mpy        # node IDs by MAC, heartbeat/offline tracking
+common/espnow_utils.mpy  # protocol (the node uses the .py)
+hub/static/index.html    # dashboard page
+lib/                     # empty (Microdot was removed)
 nodes.json               # LIVE DATA — node MAC -> ID map, written by the hub
 scores_TheBreach.json    # LIVE DATA — high scores
 scores_TimeAttack.json   # LIVE DATA — high scores
@@ -61,17 +65,25 @@ Airsoft reaction-target game. One HUB runs the game and a web UI. One or more NO
   - Commands are unicast to each online node (`sync=False`, so the hub doesn't wait for each ACK). SET_MODE is also broadcast, so nodes the hub hasn't registered yet follow it too.
 - The node turns off its ESP8266 default AP at boot. Its packets come from its STA MAC (`48:55:19:ed:f4:f4` for node 1).
 
-**Hub (`main.py`).** It runs uasyncio with four tasks. Each loop is wrapped in try/except, and a crash in `main()` reboots the board.
+**Hub memory (REVIEW #36).** MicroPython on this ESP32 starts with a 56 KB Python heap. When live data no longer fits, it doubles the heap by taking ~56 KB from the IDF heap that WiFi, sockets and ESP-NOW use. Keep the hub lean:
+- The hub runs **precompiled `.mpy`** modules (`tools/build_hub.sh`). Compiling `.py` on the board needs a burst of RAM that forces the heap to grow. `main.py` is just a stub.
+- **No big libraries.** `hub/webserver.py` replaced Microdot (≈23 KB of RAM saved).
+- Game modes load the first time they're played, not at boot.
+- **No large strings.** Leaderboards are streamed from the file to the browser, never parsed or built into one big string.
+- The `MEM py_used=… idf_free=…` log line (every 60 s) shows the margin. Expect `idf_free` ≈ 96 KB at boot. If `py_used` goes above ~50 KB, the heap grows and `idf_free` falls to ~35 KB.
+- The firmware has only **10 sockets** (1 is the listening socket), so dashboard connections are capped at 5 (`MAX_WS_CLIENTS`).
+
+**Hub (`hub_app.py`).** It runs uasyncio with four tasks. Each loop is wrapped in try/except, and a crash in `main()` reboots the board.
 1. `espnow_listener`: drains all pending packets every 10 ms into `hub.handle_packet`, which does duplicate check → ID from MAC → `node_seen` (join: add peer, add to `available_nodes`, send current mode) → battery → `on_hit`.
 2. `node_monitor`: every 1 s, a node with no packet for 15 s goes offline. It's removed from `available_nodes`, its peer is deleted, the UI is told, and `game.on_node_lost(id)` is called.
 3. `game_loop`: calls `hub.game.tick()` every 100 ms. An exception aborts the game instead of freezing it.
-4. A Microdot web server on the open AP `Airsoft-Master` at 192.168.4.1:
+4. A web server (`webserver.py`) on the open AP `Airsoft-Master` at 192.168.4.1:
    - `/` serves `hub/static/index.html`.
    - `/start?mode=TimeAttack|TheBreach&…` and `/stop` start and stop games.
    - `/api/leaderboard?mode=` returns the leaderboard.
    - `/ws` is a WebSocket that pushes `status`, `hit`, `score`, `timer`, `battery`, `nodes` and `leaderboard` messages to the browser.
 
-**Game flow (`game_engine.py`).** The game modes are `TimeAttackPlus` and `TheBreach`. Both are `GameMode` state machines. They drive LEDs through `hub.send_node_cmd`/`broadcast_led` and the UI through `broadcast_ws`. When a game starts, the hub puts the nodes in mode 1 (Active). At game over, it saves the score to `scores_<TimeAttack|TheBreach>.json` (top 20), switches the nodes to mode 2 (Standby), then to mode 0 (Idle) after 10 s. `scores_time_attack.json` is not referenced by the code. It has an older score format (`hpm`/`hps` fields), so it's left over from an earlier version.
+**Game flow (`mode_time_attack.py`, `mode_breach.py`).** The game modes are `TimeAttackPlus` and `TheBreach`. Both are `GameMode` state machines. They drive LEDs through `hub.send_node_cmd`/`broadcast_led` and the UI through `broadcast_ws`. When a game starts, the hub puts the nodes in mode 1 (Active). At game over, it saves the score to `scores_<TimeAttack|TheBreach>.json` (top 20), switches the nodes to mode 2 (Standby), then to mode 0 (Idle) after 10 s. `scores_time_attack.json` is not referenced by the code. It has an older score format (`hpm`/`hps` fields), so it's left over from an earlier version.
 
 **Game modes.**
 - **Time Attack+** (`TimeAttackPlus`): runs for a set time. Yellow ×3 then green start sequence. A red node is a live target, and a hit scores 10/5/2 points by reaction time (<750 / ≤1400 / >1400 ms), ×1.5 once the combo passes 3. A hit on a dark node costs −15 and freezes all nodes orange for 1 s. The minimum number of lit targets rises every 30 s, depending on difficulty (`DifficultyConfig`).
@@ -85,13 +97,13 @@ Airsoft reaction-target game. One HUB runs the game and a web UI. One or more NO
 
 | Repo | Board |
 |------|-------|
-| `hub/main.py`, `hub/game_engine.py`, `hub/storage.py`, `hub/node_registry.py` | HUB `:main.py`, `:game_engine.py`, `:storage.py`, `:node_registry.py` |
-| `hub/lib/*.py` | HUB `:lib/` |
+| `hub/main.py` (stub) | HUB `:main.py` (as `.py`) |
+| `hub/*.py` except `main.py` | HUB `:<name>.mpy`, **compiled** with `tools/build_hub.sh` (output in `build/hub/`) |
 | `hub/static/index.html` | HUB `:hub/static/index.html` |
 | `node/main.py`, `node/config.json` | NODE `:main.py`, `:config.json` (config is per node and written by the node itself; don't upload the repo copy over an existing node) |
-| `common/espnow_utils.py` | both boards, `:common/espnow_utils.py` |
+| `common/espnow_utils.py` | NODE `:common/espnow_utils.py`; HUB `:common/espnow_utils.mpy` (compiled) |
 
-Upload hub files one by one, using the paths in the table. Never upload `nodes.json` or `scores_*.json`.
+Never put a `.py` and a `.mpy` of the same module on the hub: MicroPython loads the `.py` first. Never upload `nodes.json` or `scores_*.json`.
 
 ## Commands
 
@@ -107,17 +119,18 @@ mpremote connect $NODE ls
 # Read a file from a board
 mpremote connect $HUB cat main.py
 
-# Upload a single file (repo paths differ from board paths, see the table above)
-mpremote connect $HUB cp hub/game_engine.py :game_engine.py
-mpremote connect $HUB cp hub/main.py :main.py
+# HUB: compile, then upload the compiled modules (needs mpy-cross 1.27:
+# pip install --user mpy-cross==1.27.0.post2)
+tools/build_hub.sh
+mpremote connect $HUB cp -r build/hub/. :                 # all modules, or one:
+mpremote connect $HUB cp build/hub/hub_app.mpy :hub_app.mpy
 mpremote connect $HUB cp hub/static/index.html :hub/static/index.html
-mpremote connect $NODE cp node/main.py :main.py
+mpremote connect $HUB cp hub/main.py :main.py             # only if the stub changed
+# Never `cp -r hub :` and never upload hub .py modules (they would shadow the .mpy)
 
-# Upload a folder (creates/overwrites files inside it)
-mpremote connect $HUB cp -r common :
+# NODE: plain .py
+mpremote connect $NODE cp node/main.py :main.py
 mpremote connect $NODE cp -r common :
-mpremote connect $HUB cp hub/lib/*.py :lib/
-# Never `cp -r hub :` (it would put main.py at :hub/main.py)
 
 # Run a script from the PC without saving it to the board (good for quick tests)
 timeout 30 mpremote connect $NODE run test_script.py
@@ -131,6 +144,9 @@ python3 -m unittest discover -s tests
 # Hardware test harness: drives the real hub code (see the SCENARIO list in the file).
 # Keep the script small: generate a copy with only the scenario you need.
 timeout 90 mpremote connect $HUB run tools/hub_harness.py
+# Web + memory load test (runs as .mpy; see its docstring)
+mpy-cross -o build/web_load.mpy tools/web_load.py
+timeout 150 mpremote connect $HUB cp build/web_load.mpy :web_load.mpy + exec "import web_load" + rm :web_load.mpy
 timeout 60 mpremote connect $NODE run tools/node_fake_hit.py   # simulated sensor hits
 
 # Download everything from a board (backup)
@@ -154,7 +170,7 @@ Only one program can use a serial port at a time. If you get "port is busy", som
 - **Never run `esptool erase_flash`, `write_flash`, or reflash MicroPython** without asking me first.
 - **Never delete files on a board** (`mpremote rm`) without asking me first.
 - Before a large change, back up the affected board to `./backup_hub/` or `./backup_node/`. These folders are in `.gitignore`.
-- Keep memory use low: both boards have limited RAM (the ESP8266 node even less than the ESP32). Avoid big imports and large strings, and prefer `const()` for constants.
+- Keep memory use low: both boards have limited RAM (the ESP8266 node even less than the ESP32). Avoid big imports and large strings, and prefer `const()` for constants. On the hub, check the `MEM` line after changes (see "Hub memory" above).
 - Don't add libraries that aren't available for MicroPython.
 - If you're unsure which board a change belongs on, ask me.
 
